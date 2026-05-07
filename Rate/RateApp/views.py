@@ -1,6 +1,10 @@
+from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators import action
 from django.shortcuts import render
-from .models import *
 from abc import ABC, abstractmethod
+from rest_framework import viewsets
+from .models import *
 
 class IUserRepository(ABC):
     @abstractmethod
@@ -195,7 +199,7 @@ class UserRepository(IUserRepository):
         user = User.objects.get(id=user_id)
         other_user = User.objects.get(id=other_user_id)
 
-        if user != None and other_user != None:
+        if user != None and other_user != None:    
             messages = Message.objects.filter(sender_id=user_id, recipient_id=other_user_id) | Message.objects.filter(sender_id=other_user_id, recipient_id=user_id)
             return messages.order_by('send_time')
         return []
@@ -270,3 +274,25 @@ class UserRepository(IUserRepository):
             user.save()
             return True
         return False
+    
+
+
+
+class UserView(viewsets.ViewSet):
+    def __init__(self, **kwargs):
+        self.user_repository = UserRepository()
+        self.__super().__init__(**kwargs),
+
+    @action(methods=['post'], detail=False)
+    def create_user(self, request):
+        username = request.data.get('username')
+        email = request.data.get('email')
+        password = request.data.get('password')
+        returnUrl = request.query_params.get('returnUrl', '/')
+
+        if not username or not email or not password:
+            return HttpResponseBadRequest("Username, email and password are required.")
+        
+        user = self.user_repository.create_user(username, email, password)
+        if user:
+                    
