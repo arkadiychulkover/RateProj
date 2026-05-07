@@ -1,4 +1,5 @@
 from django.db import models
+from enum import Enum
 
 class User(AbstractUser):
     url_paths = models.JSONField(default=list)
@@ -15,6 +16,12 @@ class User(AbstractUser):
     time_spent = models.DateTimeField(null=True, blank=True)
 
     email = models.EmailField(unique=True)
+
+    reatd_users = models.ManyToManyField(
+        "self",
+        blank=True,
+        symmetrical=False
+    )
 
     def __str__(self):
         return f"ID: {self.id} {self.username} ({self.email}) - Rating: {self.rating:.2f} based on {self.rated_count} ratings"
@@ -66,15 +73,16 @@ class Image(models.Model):
 
 class UserModel:
     def __init__(self, user_id, username, email):
-        self.id = user_id
         self.username = username
         self.email = email
+        self.id = user_id
 
+        self.rated_users = set()
         self.friends = set()
-        self.images = []
-        self.logs = []
         self.messages = []
+        self.images = []
         self.rating = []
+        self.logs = []
 
 class MessageModel:
     def __init__(self, sender_id, recipient_id, text, send_time=None, is_read=False):
@@ -88,6 +96,19 @@ class Rate:
     def __init__(self, value):
         self.value = value
 
-class Log:
-    def __init__(self, text):
-        self.text = text
+from enum import Enum
+
+
+class Log(Enum):
+    ACCEPT_FRIEND = "ACCEPT_FRIEND"
+    SEND_MESSAGE = "SEND_MESSAGE"
+    RATE = "RATE"
+    ADD_IMG = "ADD_IMG"
+    REMOVE_IMG = "REMOVE_IMG"
+    LOGIN = "LOGIN"
+    REGISTER = "REGISTER"
+    LOGOUT = "LOGOUT"
+    REMOVE_FRIEND = "REMOVE_FRIEND"
+    DELETE_ACCOUNT = "DELETE_ACCOUNT"
+    PROFILE_VISIT = "PROFILE_VISIT"
+    FRIEND_REQUEST = "FRIEND_REQUEST"

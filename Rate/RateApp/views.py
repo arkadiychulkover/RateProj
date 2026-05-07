@@ -1,7 +1,9 @@
-from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
+import json
+
+from django.http import HttpResponseNotFound, JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators import action
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from abc import ABC, abstractmethod
 from rest_framework import viewsets
 from .models import *
@@ -12,6 +14,9 @@ class IUserRepository(ABC):
 
     @abstractmethod
     def get_user(self, user_id: int): pass
+
+    @abstractmethod
+    def get_random_user(self): pass
 
     @abstractmethod
     def get_all_users(self): pass
@@ -87,7 +92,9 @@ class IUserRepository(ABC):
 
     @abstractmethod
     def deactivate_account(self, user_id: int): pass
-
+    
+    @abstractmethod
+    def  add_to_rated(self, user_id: int, rated_user_id: int): pass
 
 class UserRepository(IUserRepository):
 
@@ -97,6 +104,9 @@ class UserRepository(IUserRepository):
         
     def get_user(self, user_id: int):
         return User.objects.get(id=user_id)
+    
+    def get_random_user(self):
+        return User.objects.order_by('?').first()
     
     def get_all_users(self):
         return User.objects.all()
@@ -275,6 +285,16 @@ class UserRepository(IUserRepository):
             return True
         return False
     
+    def add_to_rated(self, user_id: int, rated_user_id: int):
+        user = User.objects.get(id=user_id)
+        rated_user = User.objects.get(id=rated_user_id)
+
+        if user != None and rated_user != None:
+            user.rated_users.add(rated_user)
+            user.save()
+            return True
+        return False
+    
 
 
 
@@ -295,4 +315,63 @@ class UserView(viewsets.ViewSet):
         
         user = self.user_repository.create_user(username, email, password)
         if user:
-                    
+            return redirect(returnUrl)
+        
+        return HttpResponseBadRequest("Failed to create user.")
+    
+    @action(methods=['get'], detail=True)
+    def update_user(self, request, pk = None):
+        username = request.data.get('username')
+        email = request.data.get('email')
+        password = request.data.get('password')
+        returnUrl = request.query_params.get('returnUrl', '/')
+
+        if not username and not email and not password:
+            return HttpResponseBadRequest("At least one field (username, email or password) is required.")
+        
+        User.objects.filter(id=pk).update(username=username, email=email, password=password)
+        return redirect(returnUrl)
+    
+    @action(methods=['delete'], detail=True)
+    def delete_user(self, request, pk = None):
+        returnUrl = request.query_params.get('returnUrl', '/')
+        self.user_repository.delete_user(pk)
+        return redirect(returnUrl)
+    
+    @action(methods=['get'], detail=false)
+    def get_logs(self, request):
+        user_id = request.query_params.get('user_id')
+        logs = self.user_repository.get_logs(user_id)
+        logs_data = [{"id": log.id, "text": log.text} for log in logs]
+        return TemplateResponse(request, 'logs.html', {'logs': logs_data})
+    
+    @action(methods=['delete'], detail=True)
+    def delete_log(self, request, pk = None):
+        returnUrl = request.query_params.get('returnUrl', '/')
+        self.user_repository.delete_log(pk)
+        return redirect(returnUrl)
+
+    @action(methods=['get'], detail=False)
+    def lenta(self, request):
+        users = []
+        owner = User.objects.get(id=request.user.id)
+        while len(users) < 10:
+            user = self.user_repository.get_random_user()
+            if user not in owner.rated_users.all() and user != owner:
+                users.append(user)
+
+        return TemplateResponse(request, 'lenta.html', {'users': users})
+
+    @action(methods=['get'], detail=False)
+    def get_random_user(self, request):
+        owner = User.objects.get(id=request.user.id)
+
+        while True:
+            user = self.user_repository.get_random_user()
+            if owner and user:
+                has_rated = user in owner.rated_users.all()
+                if not has_rated:
+                    return JsonResponse(json.dumps(user), safe=False)
+                    break;
+                else:
+                    continue
