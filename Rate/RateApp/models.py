@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import AbstractUser
 from enum import Enum
 
 class User(AbstractUser):
@@ -17,7 +18,7 @@ class User(AbstractUser):
 
     email = models.EmailField(unique=True)
 
-    reatd_users = models.ManyToManyField(
+    rated_users = models.ManyToManyField(
         "self",
         blank=True,
         symmetrical=False
@@ -97,7 +98,6 @@ class Rate:
         self.value = value
 
 from enum import Enum
-
 
 class Log(Enum):
     ACCEPT_FRIEND = "ACCEPT_FRIEND"

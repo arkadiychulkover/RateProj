@@ -2,7 +2,7 @@ import json
 
 from django.http import HttpResponseNotFound, JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators import action
+from rest_framework.decorators import action
 from django.shortcuts import render, redirect
 from abc import ABC, abstractmethod
 from rest_framework import viewsets
@@ -301,7 +301,7 @@ class UserRepository(IUserRepository):
 class UserView(viewsets.ViewSet):
     def __init__(self, **kwargs):
         self.user_repository = UserRepository()
-        self.__super().__init__(**kwargs),
+        super().__init__(**kwargs)
 
     @action(methods=['post'], detail=False)
     def create_user(self, request):
@@ -338,12 +338,12 @@ class UserView(viewsets.ViewSet):
         self.user_repository.delete_user(pk)
         return redirect(returnUrl)
     
-    @action(methods=['get'], detail=false)
+    @action(methods=['get'], detail=False)
     def get_logs(self, request):
         user_id = request.query_params.get('user_id')
         logs = self.user_repository.get_logs(user_id)
         logs_data = [{"id": log.id, "text": log.text} for log in logs]
-        return TemplateResponse(request, 'logs.html', {'logs': logs_data})
+        return render(request, 'logs.html', {'logs': logs_data})
     
     @action(methods=['delete'], detail=True)
     def delete_log(self, request, pk = None):
@@ -354,13 +354,13 @@ class UserView(viewsets.ViewSet):
     @action(methods=['get'], detail=False)
     def lenta(self, request):
         users = []
-        owner = User.objects.get(id=request.user.id)
-        while len(users) < 10:
-            user = self.user_repository.get_random_user()
-            if user not in owner.rated_users.all() and user != owner:
-                users.append(user)
+        # owner = User.objects.get(id=request.user.id)
+        # while len(users) < 10:
+        #     user = self.user_repository.get_random_user()
+        #     if user not in owner.rated_users.all() and user != owner:
+        #         users.append(user)
 
-        return TemplateResponse(request, 'lenta.html', {'users': users})
+        return render(request, 'lenta.html', {'users': users})
 
     @action(methods=['get'], detail=False)
     def get_random_user(self, request):
@@ -372,6 +372,6 @@ class UserView(viewsets.ViewSet):
                 has_rated = user in owner.rated_users.all()
                 if not has_rated:
                     return JsonResponse(json.dumps(user), safe=False)
-                    break;
+                    break
                 else:
                     continue

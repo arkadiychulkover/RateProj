@@ -1,0 +1,82 @@
+{% extends 'layout.html' %}
+{% load static %}
+
+{% block content %}
+
+<div class="feed-layout">
+
+    <aside class="sidebar left-sidebar">
+        <div class="banner">
+            banner
+        </div>
+
+        <div class="banner">
+            banner
+        </div>
+    </aside>
+
+    <main class="feed">
+
+        <div class="post-card">
+
+            <div class="post-header">
+                <div class="username">
+                    @username
+                </div>
+
+                <div class="post-rating">
+                    Rating: 1200
+                </div>
+            </div>
+
+            <div class="post-image">
+                <img src="{% static 'img/test.jpg' %}" alt="">
+            </div>
+
+            <div class="post-footer">
+                <button class="rate-btn">
+                    RATE
+                </button>
+            </div>
+
+        </div>
+
+        <div class="post-card">
+
+            <div class="post-header">
+                <div class="username">
+                    @another_user
+                </div>
+
+                <div class="post-rating">
+                    Rating: 840
+                </div>
+            </div>
+
+            <div class="post-image">
+                <img src="{% static 'img/test.jpg' %}" alt="">
+            </div>
+
+            <div class="post-footer">
+                <button class="rate-btn">
+                    RATE
+                </button>
+            </div>
+
+        </div>
+
+    </main>
+
+    <aside class="sidebar right-sidebar">
+        <div class="banner">
+            banner
+        </div>
+
+        <div class="banner">
+            banner
+        </div>
+    </aside>
+
+</div>
+
+{% endblock %}

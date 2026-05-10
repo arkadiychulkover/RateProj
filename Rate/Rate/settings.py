@@ -27,6 +27,8 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+AUTH_USER_MODEL = 'RateApp.User'
+
 
 # Application definition
 
@@ -37,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'RateApp',
 ]
 
 MIDDLEWARE = [
@@ -51,10 +54,18 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'Rate.urls'
 
+STATIC_URL = '/static/'
+
+STATICFILES_DIRS = [
+    BASE_DIR / "Rate" / "config" / "wwwroot",
+]
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            BASE_DIR / "RateApp\\templates",
+            ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
