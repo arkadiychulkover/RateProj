@@ -1,0 +1,279 @@
+{% extends 'layout.html' %}
+{% load static %}
+
+{% block content %}
+<style>
+    /* basic cabinet styles */
+    .cabinet-container {
+        display: flex;
+        flex-direction: column;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f9f9f9;
+        border-radius: 8px;
+    }
+
+    .cabinet-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .cabinet-tabs {
+        display: flex;
+        gap: 10px;
+        border-bottom: 2px solid #ddd;
+        padding-bottom: 10px;
+    }
+
+    .tab-btn {
+        padding: 10px 15px;
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-weight: bold;
+        color: #555;
+    }
+
+    .tab-btn.active {
+        color: #007bff;
+        border-bottom: 3px solid #007bff;
+    }
+
+    .cabinet-content {
+        padding: 20px;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        min-height: 300px;
+    }
+
+    .toggle-btn {
+        padding: 8px 12px;
+        border: 1px solid #007bff;
+        background-color: white;
+        color: #007bff;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+    
+    .toggle-btn.private {
+        background-color: #007bff;
+        color: white;
+    }
+</style>
+
+<div class="cabinet-container">
+    <div class="cabinet-header">
+        <h2>My Cabinet <span id="current-username"></span></h2>
+        <div>
+            <span id="view-mode-label">Mode: PUBLIC</span>
+            <button id="toggle-view-btn" class="toggle-btn">Switch to PRIVATE</button>
+        </div>
+    </div>
+
+    <div class="cabinet-tabs">
+        <button class="tab-btn active" data-zone="PROFILE_SETTINGS">Profile Settings</button>
+        <button class="tab-btn" data-zone="CONTACT_LIST">Contacts</button>
+        <button class="tab-btn" data-zone="CHANGING_ZONE">Changing Zone</button>
+        <button class="tab-btn" data-zone="STATISTICS">Statistics</button>
+    </div>
+
+    <div id="cabinet-content-area" class="cabinet-content">
+        <!-- Content injected here via JS -->
+        Loading...
+    </div>
+</div>
+
+<!-- Assuming hardcoded user_id=1 for now as there is no login system yet -->
+<script>
+    const USER_ID = 1; 
+
+    document.addEventListener("DOMContentLoaded", () => {
+        loadCabinetState();
+
+        // Bind tabs
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const zone = e.target.getAttribute('data-zone');
+                switchZone(zone);
+            });
+        });
+
+        // Bind ViewMode toggle
+        document.getElementById('toggle-view-btn').addEventListener('click', toggleViewMode);
+    });
+
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    async function loadCabinetState() {
+        try {
+            const res = await fetch(`/cabinet/current/?user_id=${USER_ID}`);
+            if(!res.ok) {
+                document.getElementById('cabinet-content-area').innerHTML = `<p>Error loading cabinet. Make sure User ID ${USER_ID} exists.</p>`;
+                return;
+            }
+            const data = await res.json();
+            
+            if(data.currentUser) {
+                document.getElementById('current-username').textContent = `(@${data.currentUser.username})`;
+            }
+
+            updateViewModeUI(data.viewMode);
+            setActiveTab(data.currentZone);
+            renderZoneContent(data.currentZone);
+
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function switchZone(zone) {
+        try {
+            const res = await fetch('/cabinet/switch_zone/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({ user_id: USER_ID, zone: zone })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setActiveTab(zone);
+                renderZoneContent(zone);
+            }
+        } catch (e) {
+            console.error("Failed to switch zone", e);
+        }
+    }
+
+    async function toggleViewMode() {
+        const btn = document.getElementById('toggle-view-btn');
+        const currentMode = btn.classList.contains('private') ? 'PRIVATE' : 'PUBLIC';
+        const newMode = currentMode === 'PUBLIC' ? 'PRIVATE' : 'PUBLIC';
+
+        try {
+            const res = await fetch('/cabinet/change_view_mode/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({ user_id: USER_ID, mode: newMode })
+            });
+            const data = await res.json();
+            if (data.success) {
+                updateViewModeUI(newMode);
+            }
+        } catch(e) {
+            console.error("Failed to change view mode", e);
+        }
+    }
+
+    function updateViewModeUI(mode) {
+        const btn = document.getElementById('toggle-view-btn');
+        const label = document.getElementById('view-mode-label');
+        
+        label.textContent = `Mode: ${mode}`;
+        if (mode === 'PRIVATE') {
+            btn.classList.add('private');
+            btn.textContent = 'Switch to PUBLIC';
+        } else {
+            btn.classList.remove('private');
+            btn.textContent = 'Switch to PRIVATE';
+        }
+    }
+
+    function setActiveTab(zone) {
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            if(btn.getAttribute('data-zone') === zone) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+
+    function renderZoneContent(zone) {
+        const contentArea = document.getElementById('cabinet-content-area');
+        
+        if (zone === 'PROFILE_SETTINGS') {
+            contentArea.innerHTML = `
+                <h3>Profile Settings</h3>
+                <p>Manage your account settings, upload photos, and update your information here.</p>
+                <div style="margin-top:20px;">
+                    <button onclick="alert('Feature coming soon')">Change Username</button>
+                    <button onclick="alert('Feature coming soon')">Change Password</button>
+                </div>
+            `;
+        } else if (zone === 'CONTACT_LIST') {
+            contentArea.innerHTML = `
+                <h3>Contacts & Friends</h3>
+                <p>Your friends list and friend requests will appear here.</p>
+            `;
+        } else if (zone === 'CHANGING_ZONE') {
+            contentArea.innerHTML = `
+                <h3>Changing Zone</h3>
+                <p>Advanced preferences and customizations.</p>
+            `;
+        } else if (zone === 'STATISTICS') {
+            fetchStatistics();
+        } else {
+            contentArea.innerHTML = `<p>Unknown zone</p>`;
+        }
+    }
+
+    async function fetchStatistics() {
+        const contentArea = document.getElementById('cabinet-content-area');
+        contentArea.innerHTML = `<p>Loading statistics...</p>`;
+        
+        try {
+            const res = await fetch(`/cabinet/rating/${USER_ID}/`);
+            let ratingText = "N/A";
+            if(res.ok) {
+                const data = await res.json();
+                ratingText = data.rating;
+            }
+
+            const logsRes = await fetch(`/cabinet/logs/?user_id=${USER_ID}&log_types=RATE`);
+            let logsHtml = "<ul>";
+            if(logsRes.ok) {
+                const logs = await logsRes.json();
+                logs.forEach(l => {
+                    logsHtml += `<li>Action: ${l.log_type}</li>`;
+                });
+                if(logs.length === 0) logsHtml += "<li>No rating actions found.</li>";
+            }
+            logsHtml += "</ul>";
+
+            contentArea.innerHTML = `
+                <h3>Statistics</h3>
+                <div style="padding: 15px; background:#eef; border-radius:5px; display:inline-block;">
+                    <h2>Your Rating: ${ratingText}</h2>
+                </div>
+                <h4 style="margin-top:20px;">Recent Rating Activity Logs:</h4>
+                ${logsHtml}
+            `;
+
+        } catch(e) {
+            contentArea.innerHTML = `<p>Failed to load statistics.</p>`;
+        }
+    }
+</script>
+{% endblock %}

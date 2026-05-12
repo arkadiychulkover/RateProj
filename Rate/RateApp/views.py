@@ -253,7 +253,7 @@ class UserRepository(IUserRepository):
     
     def remove_image(self, image_id: int):
         image = Image.objects.get(id=image_id)
-        if image != None:
+        if image is not None:
             image.delete()
             return True
         return False
@@ -263,25 +263,25 @@ class UserRepository(IUserRepository):
     
     def add_log(self, user_id: int, log):
         user = User.objects.get(id=user_id)
-        if user != None:
-            log_entry = Log.objects.create(user=user, text=log)
+        if user is not None:
+            log_entry = LogEntry.objects.create(user=user, log_type=log, text=log)
             log_entry.save()
             return log_entry
         return None
     
     def get_logs(self, user_id: int):
-        return Log.objects.filter(user_id=user_id)
+        return LogEntry.objects.filter(user_id=user_id)
     
     def delete_account(self, user_id: int):
         user = User.objects.get(id=user_id)
-        if user != None:
+        if user is not None:
             user.delete()
             return True
         return False
     
     def deactivate_account(self, user_id: int):
         user = User.objects.get(id=user_id)
-        if user != None:
+        if user is not None:
             user.is_active = False
             user.save()
             return True
@@ -291,7 +291,7 @@ class UserRepository(IUserRepository):
         user = User.objects.get(id=user_id)
         rated_user = User.objects.get(id=rated_user_id)
 
-        if user != None and rated_user != None:
+        if user is not None and rated_user is not None:
             user.rated_users.add(rated_user)
             user.save()
             return True
@@ -445,3 +445,210 @@ class UserView(viewsets.ViewSet):
             "tier_number": tier.value,
             "tier_name": Rate.get_name(4)
         })
+class CabinetView(viewsets.ViewSet):
+    def __init__(self, **kwargs):
+        self.user_repository = UserRepository()
+        super().__init__(**kwargs)
+
+    @action(methods=['get'], detail=False)
+    def cabinet_page(self, request):
+        """Returns the SPA HTML page for the cabinet."""
+        return render(request, 'cabinet.html')
+
+    @action(methods=['get'], detail=False)
+    def current(self, request):
+        """GET_Cabinet(): returns the current user's cabinet state."""
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return HttpResponseBadRequest("user_id required")
+        try:
+            user = self.user_repository.get_user(user_id)
+            return Response({
+                "currentUser": UserSerializer(user).data,
+                "currentZone": user.cabinet_zone,
+                "viewMode": user.view_mode
+            })
+        except User.DoesNotExist:
+            return HttpResponseNotFound("User not found")
+
+    @action(methods=['post'], detail=False)
+    def switch_zone(self, request):
+        """POST_SwitchZone(zone: CabinetZone): void"""
+        user_id = request.data.get('user_id')
+        zone = request.data.get('zone')
+        if not user_id or not zone:
+            return HttpResponseBadRequest("user_id and zone required")
+        try:
+            user = self.user_repository.get_user(user_id)
+            if zone in [z.value for z in CabinetZone]:
+                user.cabinet_zone = zone
+                user.save()
+                return Response({"success": True, "currentZone": zone})
+            return HttpResponseBadRequest("Invalid zone")
+        except User.DoesNotExist:
+            return HttpResponseNotFound("User not found")
+
+    @action(methods=['post'], detail=False)
+    def change_view_mode(self, request):
+        """POST_ChangeViewMode(mode: ViewMode): void"""
+        user_id = request.data.get('user_id')
+        mode = request.data.get('mode')
+        if not user_id or not mode:
+            return HttpResponseBadRequest("user_id and mode required")
+        try:
+            user = self.user_repository.get_user(user_id)
+            if mode in [m.value for m in ViewMode]:
+                user.view_mode = mode
+                user.save()
+                return Response({"success": True, "viewMode": mode})
+            return HttpResponseBadRequest("Invalid mode")
+        except User.DoesNotExist:
+            return HttpResponseNotFound("User not found")
+
+    @action(methods=['get'], detail=False)
+    def messages(self, request):
+        """GET_Messages(userId: int): List[Message]"""
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return HttpResponseBadRequest("user_id required")
+        messages = self.user_repository.get_messages(user_id)
+        # Using simple dicts as we don't have MessageSerializer defined above easily
+        return Response([{"id": m.id, "text": m.message_text, "is_read": m.is_read} for m in messages])
+
+    @action(methods=['get'], detail=True)
+    def message(self, request, pk=None):
+        """GET_Message(messageId: int): Message"""
+        try:
+            message = Message.objects.get(id=pk)
+            return Response({"id": message.id, "text": message.message_text, "is_read": message.is_read})
+        except Message.DoesNotExist:
+            return HttpResponseNotFound("Message not found")
+
+    @action(methods=['put'], detail=True)
+    def mark_as_read(self, request, pk=None):
+        """PUT_MarkAsRead(messageId: int): bool"""
+        msg = self.user_repository.mark_message_as_read(pk)
+        if msg:
+            return Response({"success": True})
+        return HttpResponseNotFound("Message not found")
+
+    @action(methods=['delete'], detail=True)
+    def delete_message(self, request, pk=None):
+        """DELETE_Message(messageId: int): bool"""
+        try:
+            msg = Message.objects.get(id=pk)
+            msg.delete()
+            return Response({"success": True})
+        except Message.DoesNotExist:
+            return HttpResponseNotFound("Message not found")
+
+    @action(methods=['post'], detail=False)
+    def add_rating(self, request):
+        """POST_AddRating(userId: int, fromUserId: int, rate: Rating): bool"""
+        user_id = request.data.get('user_id')
+        from_user_id = request.data.get('from_user_id')
+        rate_val = request.data.get('rate')
+        
+        if not all([user_id, from_user_id, rate_val]):
+            return HttpResponseBadRequest("Missing parameters")
+            
+        rating = self.user_repository.add_rating(user_id, from_user_id, rate_val)
+        
+        if rating:
+            self.user_repository.add_to_rated(from_user_id, user_id)
+            self.user_repository.add_log(from_user_id, LogType.RATE.value)
+            return Response({"success": True})
+        return HttpResponseBadRequest("Failed to add rating")
+
+    @action(methods=['get'], detail=True)
+    def rating(self, request, pk=None):
+        """GET_Rating(userId: int): float"""
+        rating_val = self.user_repository.get_rating(pk)
+        return Response({"rating": rating_val})
+
+    @action(methods=['get'], detail=True)
+    def ratings(self, request, pk=None):
+        """GET_Ratings(userId: int): List[Rating]"""
+        ratings = self.user_repository.get_ratings(pk)
+        return Response([{"from": r.from_user.id, "value": r.value} for r in ratings])
+
+    @action(methods=['post'], detail=False)
+    def add_image(self, request):
+        """POST_AddImage(userId: int, url: str): bool"""
+        user_id = request.data.get('user_id')
+        url = request.data.get('url')
+        if not user_id or not url:
+            return HttpResponseBadRequest("user_id and url required")
+            
+        img = self.user_repository.add_image(user_id, url)
+        if img:
+            self.user_repository.add_log(user_id, LogType.ADD_IMG.value)
+            return Response({"success": True, "image_id": img.id, "url": img.url})
+        return HttpResponseBadRequest("Failed to add image")
+
+    @action(methods=['delete'], detail=True)
+    def remove_image(self, request, pk=None):
+        """DELETE_RemoveImage(imageId: int): bool"""
+        try:
+            img = Image.objects.get(id=pk)
+            user_id = img.user.id
+            success = self.user_repository.remove_image(pk)
+            if success:
+                self.user_repository.add_log(user_id, LogType.REMOVE_IMG.value)
+                return Response({"success": True})
+        except Image.DoesNotExist:
+            pass
+        return HttpResponseNotFound("Image not found")
+
+    @action(methods=['get'], detail=False)
+    def images(self, request):
+        """GET_Images(userId: int): List[str]"""
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return HttpResponseBadRequest("user_id required")
+        images = self.user_repository.get_images(user_id)
+        return Response([{"id": i.id, "url": i.url} for i in images])
+
+    @action(methods=['delete'], detail=False)
+    def delete_account(self, request):
+        """DELETE_DeleteAccount(userId: int): bool"""
+        user_id = request.data.get('user_id')
+        if not user_id:
+            return HttpResponseBadRequest("user_id required")
+            
+        success = self.user_repository.delete_account(user_id)
+        if success:
+            return Response({"success": True})
+        return HttpResponseNotFound("User not found")
+
+    @action(methods=['put'], detail=False)
+    def deactivate_account(self, request):
+        """PUT_DeactivateAccount(userId: int): bool"""
+        user_id = request.data.get('user_id')
+        if not user_id:
+            return HttpResponseBadRequest("user_id required")
+            
+        success = self.user_repository.deactivate_account(user_id)
+        if success:
+            return Response({"success": True})
+        return HttpResponseNotFound("User not found")
+
+    @action(methods=['get'], detail=False)
+    def logs(self, request):
+        """GET_Logs with LogFilter support."""
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return HttpResponseBadRequest("user_id required")
+            
+        logs_qs = self.user_repository.get_logs(user_id)
+        
+        log_filter = LogFilter()
+        if request.query_params.get('target_user_id'):
+            log_filter.target_user_id = int(request.query_params.get('target_user_id'))
+            
+        log_types = request.query_params.getlist('log_types')
+        if log_types:
+            log_filter.log_types = log_types
+            
+        filtered_logs = log_filter.apply_filter(logs_qs)
+        return Response([{"id": l.id, "log_type": l.log_type, "text": l.text} for l in filtered_logs])
