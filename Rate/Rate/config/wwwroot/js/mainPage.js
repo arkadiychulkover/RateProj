@@ -54,4 +54,23 @@ if (rateBtn) {
     });
 }
 
+document.addEventListener("DOMContentLoaded", async function () {
+    try {
+        console.log("ddddddddddd")
+        const response = await fetch('/lenta/users/get_user_rating/');
+        
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const label = document.getElementById('UsersRating');
+        console.log(label.innerText)
+
+        if (label) {
+            label.innerText = data.tier_name;
+        }
+    } catch (error) {
+        console.error(error);
+    }
+});
+
 loadRandomUser();

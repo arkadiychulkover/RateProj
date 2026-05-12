@@ -432,3 +432,16 @@ class UserView(viewsets.ViewSet):
             "success": True,
             "message": "Users created"
         })
+    
+    @action(methods=['get'], detail=False)
+    def get_user_rating(self, request):
+        # user = User.objects.get(id=request.user.id)
+        # rating = int(user.rating)/user.rated_count
+        # tier_index = max(1, min(rating, 15))
+        # tier = Rate(tier_index)
+        tier = Rate(4)
+        print(Rate.get_name(4))
+        return Response({
+            "tier_number": tier.value,
+            "tier_name": Rate.get_name(4)
+        })

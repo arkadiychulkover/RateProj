@@ -98,7 +98,7 @@ class Rate:
     def __init__(self, value):
         self.value = value
 
-from enum import Enum
+from enum import Enum, IntEnum
 
 class Log(Enum):
     ACCEPT_FRIEND = "ACCEPT_FRIEND"
@@ -113,6 +113,30 @@ class Log(Enum):
     DELETE_ACCOUNT = "DELETE_ACCOUNT"
     PROFILE_VISIT = "PROFILE_VISIT"
     FRIEND_REQUEST = "FRIEND_REQUEST"
+
+class Rate(IntEnum):
+    SUB3 = 1
+    SUB5 = 2
+    LLTN = 3
+    LTN = 4
+    HLTN = 5
+    LMTN = 6
+    MTN = 7
+    HMTN = 8
+    LHTN = 9
+    HTN = 10
+    HHTN = 11
+    CHAD_LITE = 12
+    CHAD = 13
+    ADAM_LITE = 14
+    TRUE_ADAM = 15
+
+    @classmethod
+    def get_name(cls, value):
+        try:
+            return cls(value).name.replace('_', ' ').title().replace(' ', '')
+        except ValueError:
+            return "Unknown"
 
 class UserSerializer(serializers.ModelSerializer):
     display_rating = serializers.SerializerMethodField()
@@ -131,5 +155,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_display_rating(self, obj):
         if obj.rated_count > 0:
-            return round(obj.rating / obj.rated_count, 2)
+            rating = round(int(obj.rating) / obj.rated_count)
+            tier_index = max(1, min(rating, 15))
+            return Rate.get_name(tier_index)
         return 0
