@@ -1,4 +1,5 @@
 from django.db import models
+from rest_framework import serializers
 from django.contrib.auth.models import AbstractUser
 from enum import Enum
 
@@ -112,3 +113,23 @@ class Log(Enum):
     DELETE_ACCOUNT = "DELETE_ACCOUNT"
     PROFILE_VISIT = "PROFILE_VISIT"
     FRIEND_REQUEST = "FRIEND_REQUEST"
+
+class UserSerializer(serializers.ModelSerializer):
+    display_rating = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 
+            'username', 
+            'email', 
+            'url_paths', 
+            'rating', 
+            'rated_count', 
+            'display_rating'
+        ]
+
+    def get_display_rating(self, obj):
+        if obj.rated_count > 0:
+            return round(obj.rating / obj.rated_count, 2)
+        return 0

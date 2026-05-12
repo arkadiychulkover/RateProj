@@ -20,45 +20,21 @@
         <div class="post-card">
 
             <div class="post-header">
-                <div class="username">
+                <div class="username" id="username">
                     @username
                 </div>
 
-                <div class="post-rating">
-                    Rating: 1200
+                <div class="post-rating" id="rating">
+                    Rating: 0
                 </div>
             </div>
 
             <div class="post-image">
-                <img src="{% static 'img/test.jpg' %}" alt="">
+                <img id="user-image" src="{% static 'img/test.jpg' %}" alt="">
             </div>
 
             <div class="post-footer">
-                <button class="rate-btn">
-                    RATE
-                </button>
-            </div>
-
-        </div>
-
-        <div class="post-card">
-
-            <div class="post-header">
-                <div class="username">
-                    @another_user
-                </div>
-
-                <div class="post-rating">
-                    Rating: 840
-                </div>
-            </div>
-
-            <div class="post-image">
-                <img src="{% static 'img/test.jpg' %}" alt="">
-            </div>
-
-            <div class="post-footer">
-                <button class="rate-btn">
+                <button class="rate-btn" id="rate-btn">
                     RATE
                 </button>
             </div>
@@ -78,5 +54,4 @@
     </aside>
 
 </div>
-
 {% endblock %}

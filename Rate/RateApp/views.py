@@ -3,10 +3,12 @@ import json
 from django.http import HttpResponseNotFound, JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import action
+from rest_framework.response import Response
 from django.shortcuts import render, redirect
 from abc import ABC, abstractmethod
 from rest_framework import viewsets
 from .models import *
+from .models import UserSerializer
 
 class IUserRepository(ABC):
     @abstractmethod
@@ -362,16 +364,71 @@ class UserView(viewsets.ViewSet):
 
         return render(request, 'lenta.html', {'users': users})
 
+    @action(methods=['post'], detail=True)
+    def add_rating(self, request, pk=None):
+
+        # data = json.loads(request.body)
+        # rate = data.get('rate')
+        # owner = request.user
+        # user = User.objects.get(id=pk)
+
+        # user.rating += float(rate)
+        # user.rated_count += 1
+        # user.save()
+        # owner.rated_users.add(user)
+
+        return JsonResponse({
+            "success": True
+        })
+
     @action(methods=['get'], detail=False)
     def get_random_user(self, request):
-        owner = User.objects.get(id=request.user.id)
-
-        while True:
+        try:
             user = self.user_repository.get_random_user()
-            if owner and user:
-                has_rated = user in owner.rated_users.all()
-                if not has_rated:
-                    return JsonResponse(json.dumps(user), safe=False)
-                    break
-                else:
-                    continue
+            serialized = UserSerializer(user)
+            return Response(serialized.data)
+        except Exception as e:
+            print(e)
+        # owner = User.objects.get(id=request.user.id)
+        # while True:
+            # user = self.user_repository.get_random_user()
+            # if owner and user:
+            #     has_rated = user in owner.rated_users.all()
+            #     if not has_rated:
+            #         return JsonResponse(json.dumps(user), safe=False)
+            #         break
+            #     else:
+            #         continue
+
+    @action(methods=['get'], detail=False)
+    def seed_users(self, request):
+
+        from faker import Faker
+        import random
+
+        fake = Faker()
+
+        for i in range(50):
+
+            username = fake.user_name() + str(random.randint(1, 9999))
+            email = fake.email()
+
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password="12345678"
+            )
+
+            user.rating = random.randint(0, 5000)
+            user.rated_count = random.randint(0, 1000)
+
+            user.url_paths = [
+                f"https://picsum.photos/500/500?random={random.randint(1,999999)}"
+            ]
+
+            user.save()
+
+        return JsonResponse({
+            "success": True,
+            "message": "Users created"
+        })
