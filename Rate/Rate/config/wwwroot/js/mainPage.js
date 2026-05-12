@@ -1,38 +1,42 @@
 async function loadRandomUser() {
     try {
         const response = await fetch("/lenta/users/get_random_user/");
-
         if (!response.ok) return;
 
         const user = await response.json();
 
-        const usernameElem = document.getElementById("username");
-        const ratingElem = document.getElementById("rating");
-        const userImageElem = document.getElementById("user-image");
-        const rateBtn = document.getElementById("rate-btn");
-
-        if (usernameElem) usernameElem.innerText = "@" + user.username;
+        document.getElementById("username").innerText = "@" + user.username;
+        document.getElementById("rating").innerText = "Rating: " + (user.display_rating || user.rating);
         
-        if (ratingElem) {
-            const displayRating = user.display_rating !== undefined ? user.display_rating : user.rating;
-            ratingElem.innerText = "Rating: " + displayRating;
+        const img = document.getElementById("user-image");
+        if (user.url_paths && user.url_paths.length > 0) {
+            img.src = user.url_paths[0];
         }
 
-        if (userImageElem && user.url_paths && user.url_paths.length > 0) {
-            userImageElem.src = user.url_paths[0];
-        }
-
-        if (rateBtn) rateBtn.dataset.userId = user.id;
-
-    } catch (error) {
-        console.error(error);
+        document.getElementById("rate-data-holder").dataset.userId = user.id;
+    } catch (e) {
+        console.error(e);
     }
 }
 
-const rateBtn = document.getElementById("rate-btn");
-if (rateBtn) {
-    rateBtn.addEventListener("click", async function () {
-        const userId = this.dataset.userId;
+async function updateGlobalRating() {
+    try {
+        const res = await fetch('/lenta/users/get_user_rating/');
+        if (res.ok) {
+            const data = await res.json();
+            const label = document.getElementById('UsersRating');
+            if (label) label.innerText = data.rating;
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+document.addEventListener("click", async function(e) {
+    if (e.target.classList.contains("rate-num")) {
+        const userId = document.getElementById("rate-data-holder").dataset.userId;
+        const rateValue = e.target.dataset.value;
+
         if (!userId) return;
 
         try {
@@ -42,35 +46,20 @@ if (rateBtn) {
                     "Content-Type": "application/json",
                     "X-CSRFToken": typeof CSRF_TOKEN !== 'undefined' ? CSRF_TOKEN : ""
                 },
-                body: JSON.stringify({ rate: 10 })
+                body: JSON.stringify({ rate: rateValue })
             });
 
             if (response.ok) {
                 await loadRandomUser();
+                await updateGlobalRating();
             }
-        } catch (error) {
-            console.error(error);
+        } catch (err) {
+            console.error(err);
         }
-    });
-}
-
-document.addEventListener("DOMContentLoaded", async function () {
-    try {
-        console.log("ddddddddddd")
-        const response = await fetch('/lenta/users/get_user_rating/');
-        
-        if (!response.ok) return;
-
-        const data = await response.json();
-        const label = document.getElementById('UsersRating');
-        console.log(label.innerText)
-
-        if (label) {
-            label.innerText = data.tier_name;
-        }
-    } catch (error) {
-        console.error(error);
     }
 });
 
-loadRandomUser();
+document.addEventListener("DOMContentLoaded", () => {
+    loadRandomUser();
+    updateGlobalRating();
+});
