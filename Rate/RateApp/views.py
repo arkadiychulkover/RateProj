@@ -1,6 +1,12 @@
-from django.shortcuts import render
-from .models import *
+import json
+
+from django.http import HttpResponseNotFound, JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators import action
+from django.shortcuts import render, redirect
 from abc import ABC, abstractmethod
+from rest_framework import viewsets
+from .models import *
 
 class IUserRepository(ABC):
     @abstractmethod
@@ -8,6 +14,9 @@ class IUserRepository(ABC):
 
     @abstractmethod
     def get_user(self, user_id: int): pass
+
+    @abstractmethod
+    def get_random_user(self): pass
 
     @abstractmethod
     def get_all_users(self): pass
@@ -83,7 +92,9 @@ class IUserRepository(ABC):
 
     @abstractmethod
     def deactivate_account(self, user_id: int): pass
-
+    
+    @abstractmethod
+    def  add_to_rated(self, user_id: int, rated_user_id: int): pass
 
 class UserRepository(IUserRepository):
 
@@ -93,6 +104,9 @@ class UserRepository(IUserRepository):
         
     def get_user(self, user_id: int):
         return User.objects.get(id=user_id)
+    
+    def get_random_user(self):
+        return User.objects.order_by('?').first()
     
     def get_all_users(self):
         return User.objects.all()
@@ -195,7 +209,7 @@ class UserRepository(IUserRepository):
         user = User.objects.get(id=user_id)
         other_user = User.objects.get(id=other_user_id)
 
-        if user != None and other_user != None:
+        if user != None and other_user != None:    
             messages = Message.objects.filter(sender_id=user_id, recipient_id=other_user_id) | Message.objects.filter(sender_id=other_user_id, recipient_id=user_id)
             return messages.order_by('send_time')
         return []
@@ -270,3 +284,182 @@ class UserRepository(IUserRepository):
             user.save()
             return True
         return False
+    
+    def add_to_rated(self, user_id: int, rated_user_id: int):
+        user = User.objects.get(id=user_id)
+        rated_user = User.objects.get(id=rated_user_id)
+
+        if user != None and rated_user != None:
+            user.rated_users.add(rated_user)
+            user.save()
+            return True
+        return False
+    
+
+
+
+class UserView(viewsets.ViewSet):
+    def __init__(self, **kwargs):
+        self.user_repository = UserRepository()
+        self.__super().__init__(**kwargs),
+
+    @action(methods=['post'], detail=False)
+    def create_user(self, request):
+        username = request.data.get('username')
+        email = request.data.get('email')
+        password = request.data.get('password')
+        returnUrl = request.query_params.get('returnUrl', '/')
+
+        if not username or not email or not password:
+            return HttpResponseBadRequest("Username, email and password are required.")
+        
+        user = self.user_repository.create_user(username, email, password)
+        if user:
+            return redirect(returnUrl)
+        
+        return HttpResponseBadRequest("Failed to create user.")
+    
+    @action(methods=['get'], detail=True)
+    def update_user(self, request, pk = None):
+        username = request.data.get('username')
+        email = request.data.get('email')
+        password = request.data.get('password')
+        returnUrl = request.query_params.get('returnUrl', '/')
+
+        if not username and not email and not password:
+            return HttpResponseBadRequest("At least one field (username, email or password) is required.")
+        
+        User.objects.filter(id=pk).update(username=username, email=email, password=password)
+        return redirect(returnUrl)
+    
+    @action(methods=['delete'], detail=True)
+    def delete_user(self, request, pk = None):
+        returnUrl = request.query_params.get('returnUrl', '/')
+        self.user_repository.delete_user(pk)
+        return redirect(returnUrl)
+    
+    @action(methods=['get'], detail=false)
+    def get_logs(self, request):
+        user_id = request.query_params.get('user_id')
+        logs = self.user_repository.get_logs(user_id)
+        logs_data = [{"id": log.id, "text": log.text} for log in logs]
+        return TemplateResponse(request, 'logs.html', {'logs': logs_data})
+    
+    @action(methods=['delete'], detail=True)
+    def delete_log(self, request, pk = None):
+        returnUrl = request.query_params.get('returnUrl', '/')
+        self.user_repository.delete_log(pk)
+        return redirect(returnUrl)
+
+    @action(methods=['get'], detail=False)
+    def lenta(self, request):
+        users = []
+        owner = User.objects.get(id=request.user.id)
+        while len(users) < 10:
+            user = self.user_repository.get_random_user()
+            if user not in owner.rated_users.all() and user != owner:
+                users.append(user)
+
+        return TemplateResponse(request, 'lenta.html', {'users': users})
+
+    @action(methods=['get'], detail=False)
+    def get_random_user(self, request):
+        owner = User.objects.get(id=request.user.id)
+
+        while True:
+            user = self.user_repository.get_random_user()
+            if owner and user:
+                has_rated = user in owner.rated_users.all()
+                if not has_rated:
+                    return JsonResponse(json.dumps(user), safe=False)
+                    break;
+                else:
+                    continue
+
+    @action(methods=['post'], detail=False)
+    def send_message(self, request):
+        sender_id = request.data.get('sender_id')
+        recipient_id = request.data.get('recipient_id')
+        text = request.data.get('text')
+
+        if not all([sender_id, recipient_id, text]):
+            return Response({"error": "Missing fields"}, status=status.HTTP_400_BAD_REQUEST)
+
+        from datetime import datetime
+        class MessageData:
+            def __init__(self, text):
+                self.text = text
+                self.send_time = datetime.now()
+                self.is_read = False
+
+        msg_data = MessageData(text)
+        message = self.user_repository.send_message(sender_id, recipient_id, msg_data)
+
+        if message:
+            return Response({"status": "Message sent", "id": message.id}, status=status.HTTP_201_CREATED)
+        return Response({"error": "Failed to send"}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['get'], detail=False)
+    def get_chat(self, request):
+
+        user_id = request.query_params.get('user_id')
+        other_id = request.query_params.get('other_id')
+
+        if not user_id or not other_id:
+            return Response({"error": "user_id and other_id required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        messages = self.user_repository.get_chat(user_id, other_id)
+        data = [{
+            "id": m.id,
+            "sender": m.sender.id,
+            "text": m.message_text,
+            "time": m.send_time,
+            "is_read": m.is_read
+        } for m in messages]
+
+        return Response(data)
+
+
+    @action(methods=['post'], detail=False)
+    def create_friend_request(self, request):
+        from_id = request.data.get('from_id')
+        to_id = request.data.get('to_id')
+
+        req = self.user_repository.create_friend_request(from_id, to_id)
+        if req:
+            return Response({"status": "Request sent", "id": req.id})
+        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(methods=['get'], detail=False)
+    def get_friend_requests(self, request):
+        user_id = request.query_params.get('user_id')
+        requests = self.user_repository.get_friend_requests(user_id)
+        data = [{"id": r.id, "from_user": r.from_user.username} for r in requests]
+        return Response(data)
+
+    @action(methods=['post'], detail=True)
+    def accept_friend_request(self, request, pk=None):
+        result = self.user_repository.accept_friend_request(pk)
+        if result:
+            return Response({"status": "Friend added"})
+        return Response({"error": "Request not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(methods=['post'], detail=True)
+    def reject_friend_request(self, request, pk=None):
+        result = self.user_repository.reject_friend_request(pk)
+        return Response({"status": "Rejected" if result else "Failed"})
+
+    @action(methods=['get'], detail=False)
+    def get_friends(self, request):
+        user_id = request.query_params.get('user_id')
+        friends = self.user_repository.get_friends(user_id)
+        data = [{"id": f.id, "username": f.username} for f in friends]
+        return Response(data)
+
+    @action(methods=['post'], detail=False)
+    def remove_friend(self, request):
+
+        user_id = request.data.get('user_id')
+        friend_id = request.data.get('friend_id')
+        self.user_repository.remove_friend(user_id, friend_id)
+        return Response({"status": "Removed"})
