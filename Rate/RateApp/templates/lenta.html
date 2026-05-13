@@ -9,14 +9,19 @@
     </aside>
 
     <main class="feed">
-        <div class="post-card">
+        <div class="post-card" id="main-post-card">
             <div class="post-header">
                 <div class="username" id="username">@username</div>
                 <div class="post-rating" id="rating">Rating: 0</div>
             </div>
 
-            <div class="post-image">
-                <img id="user-image" src="{% static 'img/test.jpg' %}" alt="">
+            <div class="post-images-container">
+                <div class="image-wrapper">
+                    <img id="user-image-1" src="{% static 'img/test.jpg' %}" alt="">
+                </div>
+                <div class="image-wrapper">
+                    <img id="user-image-2" src="{% static 'img/test.jpg' %}" alt="">
+                </div>
             </div>
 
             <div class="post-footer">

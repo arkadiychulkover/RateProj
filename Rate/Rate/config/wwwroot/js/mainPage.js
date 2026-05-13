@@ -8,9 +8,15 @@ async function loadRandomUser() {
         document.getElementById("username").innerText = "@" + user.username;
         document.getElementById("rating").innerText = "Rating: " + (user.display_rating || user.rating);
         
-        const img = document.getElementById("user-image");
-        if (user.url_paths && user.url_paths.length > 0) {
-            img.src = user.url_paths[0];
+        const img1 = document.getElementById("user-image-1");
+        const img2 = document.getElementById("user-image-2");
+
+        if (user.url_paths && user.url_paths.length >= 2) {
+            img1.src = user.url_paths[0];
+            img2.src = user.url_paths[1];
+        } else if (user.url_paths && user.url_paths.length === 1) {
+            img1.src = user.url_paths[0];
+            img2.src = user.url_paths[0];
         }
 
         document.getElementById("rate-data-holder").dataset.userId = user.id;
@@ -25,7 +31,7 @@ async function updateGlobalRating() {
         if (res.ok) {
             const data = await res.json();
             const label = document.getElementById('UsersRating');
-            if (label) label.innerText = data.rating;
+            if (label) label.innerText = data.tier_name || data.rating;
         }
     } catch (e) {
         console.error(e);
