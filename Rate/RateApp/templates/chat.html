@@ -1,0 +1,390 @@
+{% extends 'layout.html' %}
+{% block body %}
+<div class="chat-page">
+
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-top">
+            <div class="user-btn" id="userBtn" onclick="toggleUserMenu()">
+                <div class="user-avatar" id="myAvatar">?</div>
+                <span class="user-btn-name" id="myUsername">Загрузка...</span>
+                <span class="user-btn-arrow">▾</span>
+            </div>
+            <div class="user-menu" id="userMenu" style="display:none">
+                <div class="user-menu-item" onclick="showSearch()">🔍 Найти пользователя</div>
+                <div class="user-menu-item" onclick="showRequests()">📨 Заявки в друзья <span id="req-badge" class="badge" style="display:none"></span></div>
+                <div class="user-menu-sep"></div>
+                <div class="user-menu-item danger" onclick="doLogout()">🚪 Выйти</div>
+            </div>
+        </div>
+
+        <div class="sidebar-section-title">ДРУЗЬЯ</div>
+        <div class="friends-list" id="friendsList">
+            <div class="no-friends" id="noFriends">Загрузка...</div>
+        </div>
+    </div>
+
+    <!-- Main chat area -->
+    <div class="chat-main">
+        <div class="chat-empty" id="chatEmpty">
+            <div class="empty-icon">💬</div>
+            <h3>Выбери друга для чата</h3>
+            <p>Или найди новых людей через меню выше</p>
+        </div>
+
+        <div class="chat-window" id="chatWindow" style="display:none">
+            <div class="chat-header">
+                <div class="chat-header-avatar" id="chatHeaderAvatar"></div>
+                <div class="chat-header-info">
+                    <div class="chat-header-name" id="chatHeaderName"></div>
+                    <div class="chat-header-status" id="chatHeaderStatus">в сети</div>
+                </div>
+                <button class="chat-header-remove" onclick="confirmRemoveFriend()" title="Удалить из друзей">✕</button>
+            </div>
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input-area">
+                <input type="text" id="msgInput" class="chat-input" placeholder="Напиши сообщение...">
+                <button class="chat-send-btn" onclick="sendMessage()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Search Modal -->
+<div class="modal-overlay" id="searchModal" style="display:none" onclick="closeModalBg(event,'searchModal')">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>Найти пользователя</h3>
+            <button onclick="document.getElementById('searchModal').style.display='none'">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="text" id="searchInput" class="form-input" placeholder="Введи логин..." oninput="searchUsers()">
+            <div id="searchResults" class="search-results"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Friend Requests Modal -->
+<div class="modal-overlay" id="requestsModal" style="display:none" onclick="closeModalBg(event,'requestsModal')">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>Заявки в друзья</h3>
+            <button onclick="document.getElementById('requestsModal').style.display='none'">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="requestsList"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────
+const token = localStorage.getItem('accessToken');
+const ME_ID = parseInt(localStorage.getItem('userId'));
+const ME_NAME = localStorage.getItem('username') || '';
+
+if (!token) { window.location.href = '/login/'; }
+
+let currentChatId = null;
+let currentChatName = '';
+let ws = null;
+let searchTimeout = null;
+
+// ── Init ─────────────────────────────────────────────────────────────
+document.getElementById('myUsername').textContent = ME_NAME;
+document.getElementById('myAvatar').textContent = ME_NAME.charAt(0).toUpperCase();
+
+loadFriends();
+loadFriendRequestBadge();
+setInterval(loadFriendRequestBadge, 30000);
+
+// Open chat directly if URL has /chat/<id>/
+const pathMatch = location.pathname.match(/\/chat\/(\d+)\//);
+if (pathMatch) {
+    const uid = parseInt(pathMatch[1]);
+    // Will open after friends are loaded
+    window._openChatId = uid;
+}
+
+// ── Auth header ───────────────────────────────────────────────────────
+function authHeader() {
+    return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+
+// ── Logout ────────────────────────────────────────────────────────────
+function doLogout() {
+    localStorage.clear();
+    window.location.href = '/login/';
+}
+
+// ── User menu ──────────────────────────────────────────────────────────
+function toggleUserMenu() {
+    const m = document.getElementById('userMenu');
+    m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', e => {
+    if (!e.target.closest('.user-btn') && !e.target.closest('.user-menu'))
+        document.getElementById('userMenu').style.display = 'none';
+});
+
+// ── Load friends ───────────────────────────────────────────────────────
+async function loadFriends() {
+    try {
+        const res = await fetch('/api/friends/', { headers: authHeader() });
+        if (res.status === 401) { window.location.href = '/login/'; return; }
+        const friends = await res.json();
+        renderFriends(friends);
+
+        if (window._openChatId) {
+            const f = friends.find(x => x.id === window._openChatId);
+            if (f) openChat(f.id, f.username);
+            window._openChatId = null;
+        }
+    } catch(e) {
+        document.getElementById('noFriends').textContent = 'Ошибка загрузки';
+    }
+}
+
+function renderFriends(friends) {
+    const list = document.getElementById('friendsList');
+    if (!friends.length) {
+        list.innerHTML = '<div class="no-friends" id="noFriends">Пока нет друзей.<br>Найди людей через меню выше!</div>';
+        return;
+    }
+    list.innerHTML = friends.map(f => `
+        <div class="friend-item" data-id="${f.id}" onclick="openChat(${f.id}, '${escHtml(f.username)}')">
+            <div class="friend-avatar">${f.username.charAt(0).toUpperCase()}</div>
+            <span class="friend-name">${escHtml(f.username)}</span>
+        </div>
+    `).join('');
+}
+
+function addFriendToSidebar(userId, username) {
+    const list = document.getElementById('friendsList');
+    const noFriends = list.querySelector('.no-friends');
+    if (noFriends) noFriends.remove();
+    if (!list.querySelector(`[data-id="${userId}"]`)) {
+        const div = document.createElement('div');
+        div.className = 'friend-item';
+        div.dataset.id = userId;
+        div.onclick = () => openChat(userId, username);
+        div.innerHTML = `
+            <div class="friend-avatar">${username.charAt(0).toUpperCase()}</div>
+            <span class="friend-name">${escHtml(username)}</span>
+        `;
+        list.appendChild(div);
+    }
+}
+
+// ── Open chat ──────────────────────────────────────────────────────────
+function openChat(userId, username) {
+    currentChatId = userId;
+    currentChatName = username;
+
+    document.querySelectorAll('.friend-item').forEach(el => el.classList.remove('active'));
+    const item = document.querySelector(`.friend-item[data-id="${userId}"]`);
+    if (item) item.classList.add('active');
+
+    document.getElementById('chatEmpty').style.display = 'none';
+    document.getElementById('chatWindow').style.display = 'flex';
+    document.getElementById('chatHeaderAvatar').textContent = username.charAt(0).toUpperCase();
+    document.getElementById('chatHeaderName').textContent = username;
+    document.getElementById('chatHeaderStatus').textContent = 'подключение...';
+
+    connectWebSocket(userId);
+    history.pushState(null, '', `/chat/${userId}/`);
+}
+
+// ── WebSocket ──────────────────────────────────────────────────────────
+function connectWebSocket(userId) {
+    if (ws) { ws.close(); ws = null; }
+
+    const msgs = document.getElementById('chatMessages');
+    msgs.innerHTML = '<div class="chat-loading">Загрузка сообщений...</div>';
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws/chat/${userId}/?token=${token}`);
+
+    ws.onopen = () => {
+        document.getElementById('chatHeaderStatus').textContent = 'в сети';
+    };
+    ws.onmessage = e => {
+        const data = JSON.parse(e.data);
+        const loading = msgs.querySelector('.chat-loading');
+        if (loading) loading.remove();
+        appendMessage(data.message, data.sender_id, data.time);
+    };
+    ws.onerror = () => {
+        msgs.innerHTML = '<div class="chat-error">Ошибка WebSocket. Проверь настройки сервера (daphne/channels).</div>';
+    };
+    ws.onclose = () => {
+        document.getElementById('chatHeaderStatus').textContent = 'не в сети';
+    };
+}
+
+function appendMessage(text, senderId, time) {
+    const msgs = document.getElementById('chatMessages');
+    const isMe = senderId == ME_ID;
+    const div = document.createElement('div');
+    div.className = `msg ${isMe ? 'msg-me' : 'msg-them'}`;
+    div.innerHTML = `
+        <div class="msg-bubble">${escHtml(text)}</div>
+        <div class="msg-time">${time || ''}</div>
+    `;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ── Send message ────────────────────────────────────────────────────────
+function sendMessage() {
+    const input = document.getElementById('msgInput');
+    const text = input.value.trim();
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ message: text }));
+    input.value = '';
+}
+document.getElementById('msgInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+// ── Search users ────────────────────────────────────────────────────────
+function showSearch() {
+    document.getElementById('userMenu').style.display = 'none';
+    document.getElementById('searchModal').style.display = 'flex';
+    document.getElementById('searchInput').value = '';
+    document.getElementById('searchResults').innerHTML = '';
+    setTimeout(() => document.getElementById('searchInput').focus(), 50);
+}
+
+function searchUsers() {
+    clearTimeout(searchTimeout);
+    const q = document.getElementById('searchInput').value.trim();
+    if (q.length < 2) { document.getElementById('searchResults').innerHTML = ''; return; }
+    searchTimeout = setTimeout(async () => {
+        const res = await fetch(`/api/friends/search/?q=${encodeURIComponent(q)}`, { headers: authHeader() });
+        const users = await res.json();
+        const el = document.getElementById('searchResults');
+        if (!users.length) { el.innerHTML = '<div class="no-results">Никого не найдено</div>'; return; }
+        el.innerHTML = users.map(u => `
+            <div class="search-user-item">
+                <div class="friend-avatar">${u.username.charAt(0).toUpperCase()}</div>
+                <span class="search-user-name">${escHtml(u.username)}</span>
+                <div>
+                    ${u.is_friend
+                        ? `<span class="badge-friend">Друг</span>`
+                        : u.request_sent
+                            ? `<span class="badge-sent">Отправлено</span>`
+                            : `<button class="btn-add" onclick="sendRequest(${u.id}, '${escHtml(u.username)}', this)">+ Добавить</button>`
+                    }
+                </div>
+            </div>
+        `).join('');
+    }, 300);
+}
+
+async function sendRequest(userId, username, btn) {
+    btn.disabled = true; btn.textContent = '...';
+    const res = await fetch('/api/friends/request/', {
+        method: 'POST', headers: authHeader(),
+        body: JSON.stringify({ to_id: userId })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        if (data.status === 'accepted') {
+            btn.outerHTML = '<span class="badge-friend">Друг</span>';
+            addFriendToSidebar(userId, username);
+        } else {
+            btn.outerHTML = '<span class="badge-sent">Отправлено</span>';
+        }
+    } else {
+        btn.textContent = data.error || 'Ошибка';
+        btn.disabled = false;
+    }
+}
+
+// ── Friend requests ─────────────────────────────────────────────────────
+function showRequests() {
+    document.getElementById('userMenu').style.display = 'none';
+    document.getElementById('requestsModal').style.display = 'flex';
+    loadRequests();
+}
+
+async function loadRequests() {
+    const el = document.getElementById('requestsList');
+    el.innerHTML = '<div class="chat-loading">Загрузка...</div>';
+    const res = await fetch('/api/friends/requests/', { headers: authHeader() });
+    const reqs = await res.json();
+    if (!reqs.length) { el.innerHTML = '<div class="no-results">Нет входящих заявок</div>'; return; }
+    el.innerHTML = reqs.map(r => `
+        <div class="req-item" id="req-${r.id}">
+            <div class="friend-avatar">${r.from_username.charAt(0).toUpperCase()}</div>
+            <span class="req-name">${escHtml(r.from_username)}</span>
+            <div class="req-actions">
+                <button class="btn-accept" onclick="acceptRequest(${r.id}, ${r.from_id}, '${escHtml(r.from_username)}')">✓ Принять</button>
+                <button class="btn-reject" onclick="rejectRequest(${r.id})">✕</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function acceptRequest(reqId, fromId, fromName) {
+    const res = await fetch(`/api/friends/accept/${reqId}/`, { method: 'POST', headers: authHeader() });
+    if (res.ok) {
+        document.getElementById(`req-${reqId}`)?.remove();
+        addFriendToSidebar(fromId, fromName);
+        loadFriendRequestBadge();
+    }
+}
+
+async function rejectRequest(reqId) {
+    const res = await fetch(`/api/friends/reject/${reqId}/`, { method: 'POST', headers: authHeader() });
+    if (res.ok) { document.getElementById(`req-${reqId}`)?.remove(); loadFriendRequestBadge(); }
+}
+
+async function loadFriendRequestBadge() {
+    try {
+        const res = await fetch('/api/friends/requests/', { headers: authHeader() });
+        const reqs = await res.json();
+        const badge = document.getElementById('req-badge');
+        badge.textContent = reqs.length;
+        badge.style.display = reqs.length > 0 ? 'inline' : 'none';
+    } catch {}
+}
+
+// ── Remove friend ────────────────────────────────────────────────────────
+function confirmRemoveFriend() {
+    if (!currentChatId) return;
+    if (confirm(`Удалить ${currentChatName} из друзей?`)) removeFriend(currentChatId);
+}
+
+async function removeFriend(userId) {
+    const res = await fetch('/api/friends/remove/', {
+        method: 'POST', headers: authHeader(),
+        body: JSON.stringify({ friend_id: userId })
+    });
+    if (res.ok) {
+        document.querySelector(`.friend-item[data-id="${userId}"]`)?.remove();
+        document.getElementById('chatWindow').style.display = 'none';
+        document.getElementById('chatEmpty').style.display = 'flex';
+        currentChatId = null;
+        if (ws) { ws.close(); ws = null; }
+        history.pushState(null, '', '/chat/');
+    }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+function escHtml(t) {
+    return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function closeModalBg(event, id) {
+    if (event.target.classList.contains('modal-overlay'))
+        document.getElementById(id).style.display = 'none';
+}
+</script>
+{% endblock %}
