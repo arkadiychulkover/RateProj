@@ -31,8 +31,9 @@ async function updateGlobalRating() {
         if (res.ok) {
             const data = await res.json();
             const label = document.getElementById('UsersRating');
-            if (label) label.innerText = data.tier_name || data.rating;
+            if (label) label.innerText = data.display_rating || "N/A";
         }
+        console.log("Global rating updated");
     } catch (e) {
         console.error(e);
     }
@@ -69,3 +70,4 @@ document.addEventListener("DOMContentLoaded", () => {
     loadRandomUser();
     updateGlobalRating();
 });
+

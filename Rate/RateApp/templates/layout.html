@@ -5,7 +5,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rate</title>
-
     <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 </head>
 <body>
@@ -15,8 +14,8 @@
         <img src="{% static 'assets/icon-menu.png' %}" alt="Menu">
     </button>
 
-    <div class="rate" id="UsersRating">
-        rating
+    <div class="post-rating" id="UsersRating">
+        RATING: --
     </div>
 
     <button class="nav-btn">
@@ -24,7 +23,7 @@
     </button>
 </header>
 
-{%block content%}{% endblock %}
+{% block content %}{% endblock %}
 
 <script src="{% static 'js/mainPage.js' %}"></script>
 </body>

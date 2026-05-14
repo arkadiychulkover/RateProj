@@ -94,10 +94,6 @@ class MessageModel:
         self.send_time = send_time
         self.is_read = is_read
 
-class Rate:
-    def __init__(self, value):
-        self.value = value
-
 from enum import Enum, IntEnum
 
 class Log(Enum):
