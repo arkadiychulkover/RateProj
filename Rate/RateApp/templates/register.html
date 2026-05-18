@@ -1,5 +1,5 @@
 {% extends 'layout.html' %}
-{% block body %}
+{% block content %}
 <div class="auth-page">
     <div class="auth-left">
         <div class="auth-brand">
@@ -18,8 +18,8 @@
             <h2 class="auth-title">Регистрация</h2>
             <p class="auth-sub">Создай свой аккаунт</p>
 
-            <div id="error-msg" class="error-msg" style="display:none"></div>
-            <div id="success-msg" class="success-msg" style="display:none"></div>
+            <div id="error-msg" class="error-msg" style="display:none; color: var(--red); margin-bottom: 15px; font-size: 13px;"></div>
+            <div id="success-msg" class="success-msg" style="display:none; color: var(--green); margin-bottom: 15px; font-size: 13px;"></div>
 
             <div class="form-group">
                 <label class="form-label">Логин</label>
@@ -40,7 +40,7 @@
 
             <button id="regBtn" class="btn-primary" onclick="doRegister()">
                 <span class="btn-text">Создать аккаунт</span>
-                <span class="btn-loader" style="display:none">...</span>
+                <span class="btn-loader" style="display:none">Регистрация...</span>
             </button>
 
             <div class="auth-divider">или</div>
@@ -85,8 +85,6 @@ async function doRegister() {
         const data = await res.json();
 
         if (res.ok) {
-            localStorage.setItem('accessToken', data.access);
-            localStorage.setItem('refreshToken', data.refresh);
             localStorage.setItem('userId', data.user_id);
             localStorage.setItem('username', data.username);
             showSuccess('Аккаунт создан! Перенаправляем...');
@@ -96,11 +94,11 @@ async function doRegister() {
         }
     } catch(e) {
         showError('Ошибка сети');
+    } finally {
+        btn.disabled = false;
+        btn.querySelector('.btn-text').style.display = 'inline';
+        btn.querySelector('.btn-loader').style.display = 'none';
     }
-
-    btn.disabled = false;
-    btn.querySelector('.btn-text').style.display = 'inline';
-    btn.querySelector('.btn-loader').style.display = 'none';
 }
 
 function showError(msg) {

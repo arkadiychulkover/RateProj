@@ -1,24 +1,32 @@
 import json
 
 from django.http import HttpResponseNotFound, JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
-from rest_framework.decorators import action
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django.shortcuts import render, redirect
 from abc import ABC, abstractmethod
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from .models import *
 from .models import UserSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from datetime import datetime
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework import status
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import User, Message, FriendRequest, Rating
+
+class CookieJWTAuthentication(JWTAuthentication):
+    """Кастомная проверка токена из кук для DRF ViewSets"""
+    def authenticate(self, request):
+        raw_token = request.COOKIES.get('accessToken')
+        if raw_token is None:
+            return None
+        validated_token = self.get_validated_token(raw_token)
+        return self.get_user(validated_token), validated_token
 
 
 def login_page(request):
@@ -55,14 +63,41 @@ def api_register(request):
     if User.objects.filter(email=email).exists():
         return Response({'error': 'Такой email уже используется'}, status=400)
 
+    # Создаем пользователя
     user = User.objects.create_user(username=username, email=email, password=password)
+    
+    # Автоматически авторизуем сессию в Django
+    login(request, user)
+    
+    # Генерируем JWT токены
     refresh = RefreshToken.for_user(user)
-    return Response({
-        'refresh': str(refresh),
-        'access': str(refresh.access_token),
+    access_token = str(refresh.access_token)
+    refresh_token = str(refresh)
+
+    response = Response({
+        'success': True,
         'user_id': user.id,
         'username': user.username,
     }, status=201)
+
+    # Записываем токены в безопасные куки
+    response.set_cookie(
+        key='accessToken',
+        value=access_token,
+        httponly=True,   # Защита от кражи через JS (XSS уязвимости)
+        samesite='Lax',  # Защита от CSRF
+        secure=False,    # Поставь True, когда проект будет на продакшене с HTTPS
+        max_age=86400    # Время жизни: 1 день
+    )
+    response.set_cookie(
+        key='refreshToken',
+        value=refresh_token,
+        httponly=True,
+        samesite='Lax',
+        secure=False,
+        max_age=604800   # Время жизни: 7 дней
+    )
+    return response
 
 
 @api_view(['POST'])
@@ -71,15 +106,47 @@ def api_login(request):
     username = request.data.get('username', '').strip()
     password = request.data.get('password', '').strip()
 
+    if not username or not password:
+        return Response({'error': 'Заполните все поля'}, status=400)
+
     user = authenticate(username=username, password=password)
     if user:
+        if not user.is_active:
+            return Response({'error': 'Аккаунт заблокирован'}, status=403)
+
+        # Авторизуем сессию в Django
+        login(request, user)
+
+        # Генерируем JWT токены
         refresh = RefreshToken.for_user(user)
-        return Response({
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
+        access_token = str(refresh.access_token)
+        refresh_token = str(refresh)
+
+        response = Response({
+            'success': True,
             'user_id': user.id,
             'username': user.username,
-        })
+        }, status=200)
+
+        # Записываем токены в безопасные куки
+        response.set_cookie(
+            key='accessToken',
+            value=access_token,
+            httponly=True,
+            samesite='Lax',
+            secure=False,
+            max_age=86400  # 1 день
+        )
+        response.set_cookie(
+            key='refreshToken',
+            value=refresh_token,
+            httponly=True,
+            samesite='Lax',
+            secure=False,
+            max_age=604800  # 7 дней
+        )
+        return response
+        
     return Response({'error': 'Неверный логин или пароль'}, status=401)
 
 
@@ -221,7 +288,6 @@ def api_get_chat(request, user_id):
         'is_read': m.is_read,
     } for m in messages]
     return Response(data)
-
 
 
 class IUserRepository(ABC):
@@ -515,6 +581,8 @@ class UserRepository(IUserRepository):
 
 
 class UserView(viewsets.ViewSet):
+    authentication_classes = [CookieJWTAuthentication]
+
     def __init__(self, **kwargs):
         self.user_repository = UserRepository()
         super().__init__(**kwargs)
@@ -570,26 +638,30 @@ class UserView(viewsets.ViewSet):
     @action(methods=['get'], detail=False)
     def lenta(self, request):
         users = []
-        # owner = User.objects.get(id=request.user.id)
-        # while len(users) < 10:
-        #     user = self.user_repository.get_random_user()
-        #     if user not in owner.rated_users.all() and user != owner:
-        #         users.append(user)
+        owner = request.user
+        
+        if not owner.is_authenticated:
+                return JsonResponse({"error": "Unauthorized"}, status=401)
+        
+        while len(users) < 10:
+            user = self.user_repository.get_random_user()
+            if user not in owner.rated_users.all() and user != owner:
+                users.append(user)
 
         return render(request, 'lenta.html', {'users': users})
 
     @action(methods=['post'], detail=True)
     def add_rating(self, request, pk=None):
 
-        # data = json.loads(request.body)
-        # rate = data.get('rate')
-        # owner = request.user
-        # user = User.objects.get(id=pk)
+        data = json.loads(request.body)
+        rate = data.get('rate')
+        owner = request.user
+        user = User.objects.get(id=pk)
 
-        # user.rating += float(rate)
-        # user.rated_count += 1
-        # user.save()
-        # owner.rated_users.add(user)
+        user.rating += float(rate)
+        user.rated_count += 1
+        user.save()
+        owner.rated_users.add(user)
 
         return JsonResponse({
             "success": True
@@ -598,21 +670,24 @@ class UserView(viewsets.ViewSet):
     @action(methods=['get'], detail=False)
     def get_random_user(self, request):
         try:
-            user = self.user_repository.get_random_user()
-            serialized = UserSerializer(user)
-            return Response(serialized.data)
+            owner = request.user
+            if not owner.is_authenticated:
+                return JsonResponse({"error": "Unauthorized"}, status=401)
+                
+            while True:
+                user = self.user_repository.get_random_user()
+                if owner and user:
+                    if user == owner or user in owner.rated_users.all():
+                        continue
+                        
+                    serializer = UserSerializer(user)
+                    # serializer = UserSerializer(self.user_repository.get_user(owner.id))
+                    return Response(serializer.data)
+                else:
+                    return Response({"error": "No users found"}, status=404)
         except Exception as e:
             print(e)
-        # owner = User.objects.get(id=request.user.id)
-        # while True:
-            # user = self.user_repository.get_random_user()
-            # if owner and user:
-            #     has_rated = user in owner.rated_users.all()
-            #     if not has_rated:
-            #         return JsonResponse(json.dumps(user), safe=False)
-            #         break
-            #     else:
-            #         continue
+            return Response({"error": str(e)}, status=500)
 
     @action(methods=['get'], detail=False)
     def seed_users(self, request):
@@ -649,15 +724,22 @@ class UserView(viewsets.ViewSet):
     
     @action(methods=['get'], detail=False)
     def get_user_rating(self, request):
-        # user = User.objects.get(id=request.user.id)
-        # rating = int(user.rating)/user.rated_count
-        # tier_index = max(1, min(rating, 15))
-        # tier = Rate(tier_index)
-        tier = Rate(4)
-        print(Rate.get_name(4))
+        user = request.user
+        if not user.is_authenticated:
+            return JsonResponse({"error": "Unauthorized"}, status=401)
+        
+        print(f"User {user.username} has rating {user.rating} and rated_count {user.rated_count}")
+        if user.rated_count == 0:
+            rating = 0
+        else:
+            rating = int(user.rating) / user.rated_count
+            
+        tier_index = max(1, min(int(rating), 15))
+        display_rating = UserSerializer(user).get_display_rating(user)
+
         return Response({
-            "tier_number": tier.value,
-            "tier_name": Rate.get_name(4)
+            "display_rating": display_rating,
+            "rating_value": rating
         })
 
     @action(methods=['post'], detail=False)
