@@ -1,8 +1,9 @@
 import json
 
-from django.http import HttpResponseNotFound, JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
+from django.http import HttpResponseNotFound, JsonResponse, HttpResponse, HttpResponseBadRequest, \
+    HttpResponseNotAllowed, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from django.shortcuts import render, redirect
 from abc import ABC, abstractmethod
@@ -19,8 +20,10 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import User, Message, FriendRequest, Rating
 
+
 class CookieJWTAuthentication(JWTAuthentication):
     """Кастомная проверка токена из кук для DRF ViewSets"""
+
     def authenticate(self, request):
         raw_token = request.COOKIES.get('accessToken')
         if raw_token is None:
@@ -37,12 +40,27 @@ def register_page(request):
     return render(request, 'register.html')
 
 
+def _get_ws_token(request):
+    """Extract JWT access token from cookie to pass to WebSocket URL."""
+    return request.COOKIES.get('accessToken', '')
+
+
 def chat_home(request):
-    return render(request, 'chat.html', {'chat_with_id': 'null'})
+    if not request.user.is_authenticated:
+        return redirect('/login/')
+    return render(request, 'chat.html', {
+        'chat_with_id': 'null',
+        'ws_token': _get_ws_token(request),
+    })
 
 
 def chat_with(request, user_id):
-    return render(request, 'chat.html', {'chat_with_id': user_id})
+    if not request.user.is_authenticated:
+        return redirect('/login/')
+    return render(request, 'chat.html', {
+        'chat_with_id': user_id,
+        'ws_token': _get_ws_token(request),
+    })
 
 
 # ─── Auth API ─────────────────────────────────────────────────────────────────
@@ -65,10 +83,10 @@ def api_register(request):
 
     # Создаем пользователя
     user = User.objects.create_user(username=username, email=email, password=password)
-    
+
     # Автоматически авторизуем сессию в Django
     login(request, user)
-    
+
     # Генерируем JWT токены
     refresh = RefreshToken.for_user(user)
     access_token = str(refresh.access_token)
@@ -84,10 +102,10 @@ def api_register(request):
     response.set_cookie(
         key='accessToken',
         value=access_token,
-        httponly=True,   # Защита от кражи через JS (XSS уязвимости)
+        httponly=True,  # Защита от кражи через JS (XSS уязвимости)
         samesite='Lax',  # Защита от CSRF
-        secure=False,    # Поставь True, когда проект будет на продакшене с HTTPS
-        max_age=86400    # Время жизни: 1 день
+        secure=False,  # Поставь True, когда проект будет на продакшене с HTTPS
+        max_age=86400  # Время жизни: 1 день
     )
     response.set_cookie(
         key='refreshToken',
@@ -95,7 +113,7 @@ def api_register(request):
         httponly=True,
         samesite='Lax',
         secure=False,
-        max_age=604800   # Время жизни: 7 дней
+        max_age=604800  # Время жизни: 7 дней
     )
     return response
 
@@ -146,11 +164,12 @@ def api_login(request):
             max_age=604800  # 7 дней
         )
         return response
-        
+
     return Response({'error': 'Неверный логин или пароль'}, status=401)
 
 
 @api_view(['GET'])
+@authentication_classes([CookieJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def api_me(request):
     return Response({'id': request.user.id, 'username': request.user.username})
@@ -159,6 +178,7 @@ def api_me(request):
 # ─── Friends API ──────────────────────────────────────────────────────────────
 
 @api_view(['GET'])
+@authentication_classes([CookieJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def api_get_friends(request):
     friends = request.user.friends.all()
@@ -167,6 +187,7 @@ def api_get_friends(request):
 
 
 @api_view(['GET'])
+@authentication_classes([CookieJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def api_search_users(request):
     query = request.query_params.get('q', '').strip()
@@ -191,6 +212,7 @@ def api_search_users(request):
 
 
 @api_view(['POST'])
+@authentication_classes([CookieJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def api_send_friend_request(request):
     to_id = request.data.get('to_id')
@@ -226,6 +248,7 @@ def api_send_friend_request(request):
 
 
 @api_view(['GET'])
+@authentication_classes([CookieJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def api_get_friend_requests(request):
     reqs = FriendRequest.objects.filter(to_user=request.user, is_accepted=False)
@@ -234,6 +257,7 @@ def api_get_friend_requests(request):
 
 
 @api_view(['POST'])
+@authentication_classes([CookieJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def api_accept_friend_request(request, req_id):
     try:
@@ -248,6 +272,7 @@ def api_accept_friend_request(request, req_id):
 
 
 @api_view(['POST'])
+@authentication_classes([CookieJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def api_reject_friend_request(request, req_id):
     try:
@@ -259,6 +284,7 @@ def api_reject_friend_request(request, req_id):
 
 
 @api_view(['POST'])
+@authentication_classes([CookieJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def api_remove_friend(request):
     friend_id = request.data.get('friend_id')
@@ -273,6 +299,7 @@ def api_remove_friend(request):
 # ─── Chat API ─────────────────────────────────────────────────────────────────
 
 @api_view(['GET'])
+@authentication_classes([CookieJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def api_get_chat(request, user_id):
     messages = Message.objects.filter(
@@ -374,25 +401,26 @@ class IUserRepository(ABC):
 
     @abstractmethod
     def deactivate_account(self, user_id: int): pass
-    
+
     @abstractmethod
-    def  add_to_rated(self, user_id: int, rated_user_id: int): pass
+    def add_to_rated(self, user_id: int, rated_user_id: int): pass
+
 
 class UserRepository(IUserRepository):
 
     def create_user(self, username: str, email: str, password: str, **kwargs):
         user = User.objects.create_user(username=username, email=email, password=password)
         return user
-        
+
     def get_user(self, user_id: int):
         return User.objects.get(id=user_id)
-    
+
     def get_random_user(self):
         return User.objects.order_by('?').first()
-    
+
     def get_all_users(self):
         return User.objects.all()
-    
+
     def update_user(self, user_id: int, username: str = None, email: str = None):
         user = User.objects.get(id=user_id)
 
@@ -401,7 +429,7 @@ class UserRepository(IUserRepository):
             user.email = email if email else user.email
             user.save()
         return user
-    
+
     def delete_user(self, user_id: int):
         user = User.objects.get(id=user_id)
         if user != None:
@@ -417,7 +445,7 @@ class UserRepository(IUserRepository):
             user.save()
             friend.save()
         return user
-    
+
     def remove_friend(self, user_id: int, friend_id: int):
         user = User.objects.get(id=user_id)
         friend = User.objects.get(id=friend_id)
@@ -428,13 +456,13 @@ class UserRepository(IUserRepository):
             user.save()
             friend.save()
         return user
-    
+
     def get_friends(self, user_id: int):
         user = User.objects.get(id=user_id)
         if user != None:
             return user.friends.all()
         return []
-    
+
     def is_friend(self, user_id: int, friend_id: int):
         user = User.objects.get(id=user_id)
         friend = User.objects.get(id=friend_id)
@@ -442,7 +470,7 @@ class UserRepository(IUserRepository):
         if user != None and friend != None:
             return friend in user.friends.all()
         return False
-    
+
     def create_friend_request(self, from_id: int, to_id: int):
         from_user = User.objects.get(id=from_id)
         to_user = User.objects.get(id=to_id)
@@ -451,7 +479,7 @@ class UserRepository(IUserRepository):
             request = FriendRequest.objects.create(from_user=from_user, to_user=to_user)
             return request
         return None
-    
+
     def accept_friend_request(self, request_id: int):
         request = FriendRequest.objects.get(id=request_id)
         if request != None:
@@ -460,42 +488,44 @@ class UserRepository(IUserRepository):
             self.add_friend(request.from_user.id, request.to_user.id)
             return request
         return False
-    
+
     def reject_friend_request(self, request_id: int):
         request = FriendRequest.objects.get(id=request_id)
         if request != None:
             request.delete()
             return True
         return False
-    
+
     def get_friend_requests(self, user_id: int):
         return FriendRequest.objects.filter(to_user_id=user_id)
-    
+
     def send_message(self, sender_id: int, recipient_id: int, msg: MessageModel):
         sender = User.objects.get(id=sender_id)
         recipient = User.objects.get(id=recipient_id)
 
         if sender != None and recipient != None:
-            message = Message.objects.create(sender=sender, recipient=recipient, message_text=msg.text, send_time=msg.send_time, is_read=msg.is_read)
+            message = Message.objects.create(sender=sender, recipient=recipient, message_text=msg.text,
+                                             send_time=msg.send_time, is_read=msg.is_read)
             message.save()
             return message
         return None
-    
+
     def get_messages(self, user_id):
         user = User.objects.get(id=user_id)
         if user != None:
             return user.received_messages.all()
         return []
-    
+
     def get_chat(self, user_id, other_user_id):
         user = User.objects.get(id=user_id)
         other_user = User.objects.get(id=other_user_id)
 
-        if user != None and other_user != None:    
-            messages = Message.objects.filter(sender_id=user_id, recipient_id=other_user_id) | Message.objects.filter(sender_id=other_user_id, recipient_id=user_id)
+        if user != None and other_user != None:
+            messages = Message.objects.filter(sender_id=user_id, recipient_id=other_user_id) | Message.objects.filter(
+                sender_id=other_user_id, recipient_id=user_id)
             return messages.order_by('send_time')
         return []
-    
+
     def mark_message_as_read(self, message_id: int):
         message = Message.objects.get(id=message_id)
         if message != None:
@@ -503,7 +533,7 @@ class UserRepository(IUserRepository):
             message.save()
             return message
         return None
-    
+
     def add_rating(self, user_id: int, from_user_id: int, rate):
         user = User.objects.get(id=user_id)
         from_user = User.objects.get(id=from_user_id)
@@ -513,16 +543,16 @@ class UserRepository(IUserRepository):
             rating.save()
             return rating
         return None
-    
+
     def get_rating(self, user_id: int):
         ratings = Rating.objects.filter(user_id=user_id)
         if ratings.count() > 0:
             return int(sum(r.value for r in ratings) / ratings.count())
         return 0
-    
+
     def get_ratings(self, user_id: int):
         return Rating.objects.filter(user_id=user_id)
-    
+
     def add_image(self, user_id: int, url: str):
         user = User.objects.get(id=user_id)
         if user != None:
@@ -530,17 +560,17 @@ class UserRepository(IUserRepository):
             image.save()
             return image
         return None
-    
+
     def remove_image(self, image_id: int):
         image = Image.objects.get(id=image_id)
         if image != None:
             image.delete()
             return True
         return False
-    
+
     def get_images(self, user_id: int):
         return Image.objects.filter(user_id=user_id)
-    
+
     def add_log(self, user_id: int, log):
         user = User.objects.get(id=user_id)
         if user != None:
@@ -548,17 +578,17 @@ class UserRepository(IUserRepository):
             log_entry.save()
             return log_entry
         return None
-    
+
     def get_logs(self, user_id: int):
         return Log.objects.filter(user_id=user_id)
-    
+
     def delete_account(self, user_id: int):
         user = User.objects.get(id=user_id)
         if user != None:
             user.delete()
             return True
         return False
-    
+
     def deactivate_account(self, user_id: int):
         user = User.objects.get(id=user_id)
         if user != None:
@@ -566,7 +596,7 @@ class UserRepository(IUserRepository):
             user.save()
             return True
         return False
-    
+
     def add_to_rated(self, user_id: int, rated_user_id: int):
         user = User.objects.get(id=user_id)
         rated_user = User.objects.get(id=rated_user_id)
@@ -576,8 +606,6 @@ class UserRepository(IUserRepository):
             user.save()
             return True
         return False
-    
-
 
 
 class UserView(viewsets.ViewSet):
@@ -596,15 +624,15 @@ class UserView(viewsets.ViewSet):
 
         if not username or not email or not password:
             return HttpResponseBadRequest("Username, email and password are required.")
-        
+
         user = self.user_repository.create_user(username, email, password)
         if user:
             return redirect(returnUrl)
-        
+
         return HttpResponseBadRequest("Failed to create user.")
-    
+
     @action(methods=['get'], detail=True)
-    def update_user(self, request, pk = None):
+    def update_user(self, request, pk=None):
         username = request.data.get('username')
         email = request.data.get('email')
         password = request.data.get('password')
@@ -612,25 +640,25 @@ class UserView(viewsets.ViewSet):
 
         if not username and not email and not password:
             return HttpResponseBadRequest("At least one field (username, email or password) is required.")
-        
+
         User.objects.filter(id=pk).update(username=username, email=email, password=password)
         return redirect(returnUrl)
-    
+
     @action(methods=['delete'], detail=True)
-    def delete_user(self, request, pk = None):
+    def delete_user(self, request, pk=None):
         returnUrl = request.query_params.get('returnUrl', '/')
         self.user_repository.delete_user(pk)
         return redirect(returnUrl)
-    
+
     @action(methods=['get'], detail=False)
     def get_logs(self, request):
         user_id = request.query_params.get('user_id')
         logs = self.user_repository.get_logs(user_id)
         logs_data = [{"id": log.id, "text": log.text} for log in logs]
         return render(request, 'logs.html', {'logs': logs_data})
-    
+
     @action(methods=['delete'], detail=True)
-    def delete_log(self, request, pk = None):
+    def delete_log(self, request, pk=None):
         returnUrl = request.query_params.get('returnUrl', '/')
         self.user_repository.delete_log(pk)
         return redirect(returnUrl)
@@ -639,10 +667,10 @@ class UserView(viewsets.ViewSet):
     def lenta(self, request):
         users = []
         owner = request.user
-        
+
         if not owner.is_authenticated:
-                return JsonResponse({"error": "Unauthorized"}, status=401)
-        
+            return JsonResponse({"error": "Unauthorized"}, status=401)
+
         while len(users) < 10:
             user = self.user_repository.get_random_user()
             if user not in owner.rated_users.all() and user != owner:
@@ -673,13 +701,13 @@ class UserView(viewsets.ViewSet):
             owner = request.user
             if not owner.is_authenticated:
                 return JsonResponse({"error": "Unauthorized"}, status=401)
-                
+
             while True:
                 user = self.user_repository.get_random_user()
                 if owner and user:
                     if user == owner or user in owner.rated_users.all():
                         continue
-                        
+
                     serializer = UserSerializer(user)
                     # serializer = UserSerializer(self.user_repository.get_user(owner.id))
                     return Response(serializer.data)
@@ -698,7 +726,6 @@ class UserView(viewsets.ViewSet):
         fake = Faker()
 
         for i in range(50):
-
             username = fake.user_name() + str(random.randint(1, 9999))
             email = fake.email()
 
@@ -712,7 +739,7 @@ class UserView(viewsets.ViewSet):
             user.rated_count = random.randint(0, 1000)
 
             user.url_paths = [
-                f"https://picsum.photos/500/500?random={random.randint(1,999999)}"
+                f"https://picsum.photos/500/500?random={random.randint(1, 999999)}"
             ]
 
             user.save()
@@ -721,19 +748,19 @@ class UserView(viewsets.ViewSet):
             "success": True,
             "message": "Users created"
         })
-    
+
     @action(methods=['get'], detail=False)
     def get_user_rating(self, request):
         user = request.user
         if not user.is_authenticated:
             return JsonResponse({"error": "Unauthorized"}, status=401)
-        
+
         print(f"User {user.username} has rating {user.rating} and rated_count {user.rated_count}")
         if user.rated_count == 0:
             rating = 0
         else:
             rating = int(user.rating) / user.rated_count
-            
+
         tier_index = max(1, min(int(rating), 15))
         display_rating = UserSerializer(user).get_display_rating(user)
 

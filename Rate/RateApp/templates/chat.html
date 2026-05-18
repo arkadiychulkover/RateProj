@@ -1,5 +1,5 @@
 {% extends 'layout.html' %}
-{% block body %}
+{% block content %}
 <div class="chat-page">
 
     <!-- Sidebar -->
@@ -84,11 +84,9 @@
 
 <script>
 // ── State ────────────────────────────────────────────────────────────
-const token = localStorage.getItem('accessToken');
-const ME_ID = parseInt(localStorage.getItem('userId'));
-const ME_NAME = localStorage.getItem('username') || '';
-
-if (!token) { window.location.href = '/login/'; }
+// Auth data injected by Django — no localStorage needed
+const ME_ID = {{ request.user.id }};
+const ME_NAME = "{{ request.user.username|escapejs }}";
 
 let currentChatId = null;
 let currentChatName = '';
@@ -112,8 +110,9 @@ if (pathMatch) {
 }
 
 // ── Auth header ───────────────────────────────────────────────────────
+// Token is in httpOnly cookie — sent automatically by browser
 function authHeader() {
-    return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+    return { 'Content-Type': 'application/json' };
 }
 
 // ── Logout ────────────────────────────────────────────────────────────
@@ -208,7 +207,7 @@ function connectWebSocket(userId) {
     msgs.innerHTML = '<div class="chat-loading">Загрузка сообщений...</div>';
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws/chat/${userId}/?token=${token}`);
+    ws = new WebSocket(`${proto}://${location.host}/ws/chat/${userId}/?token={{ ws_token }}`);
 
     ws.onopen = () => {
         document.getElementById('chatHeaderStatus').textContent = 'в сети';
@@ -387,4 +386,4 @@ function closeModalBg(event, id) {
         document.getElementById(id).style.display = 'none';
 }
 </script>
-{% endblock %}
+{% endblock content %}
