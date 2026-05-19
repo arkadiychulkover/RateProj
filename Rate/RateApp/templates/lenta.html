@@ -11,7 +11,7 @@
     <main class="feed">
         <div class="post-card" id="main-post-card">
             <div class="post-header">
-                <div class="username" id="username">@username</div>
+                <div class="username" id="username" onclick="openProfileModal()" title="Открыть профиль">@username</div>
                 <div class="post-rating" id="rating">Rating: 0</div>
             </div>
 
@@ -52,4 +52,128 @@
         <div class="banner">ADS</div>
     </aside>
 </div>
+
+<!-- Profile Modal -->
+<div class="modal-overlay" id="profileModal" onclick="closeProfileModalBg(event)">
+    <div class="profile-modal">
+        <button class="profile-modal-close" onclick="closeProfileModal()">✕</button>
+
+        <div class="profile-modal-header">
+            <div class="profile-avatar" id="modalAvatar">?</div>
+            <div class="profile-modal-info">
+                <div class="profile-modal-username" id="modalUsername">@username</div>
+                <div class="profile-modal-rating" id="modalRating">—</div>
+            </div>
+        </div>
+
+        <div class="profile-modal-photos" id="modalPhotos"></div>
+
+        <div class="profile-modal-actions">
+            <button class="profile-action-btn btn-friend" id="modalFriendBtn" onclick="modalSendFriendRequest()">
+                <span>👤</span> Добавить в друзья
+            </button>
+            <button class="profile-action-btn btn-chat" id="modalChatBtn" onclick="modalOpenChat()">
+                <span>💬</span> Написать
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let _modalUserId = null;
+let _modalUsername = '';
+
+function openProfileModal() {
+    const holder = document.getElementById('rate-data-holder');
+    _modalUserId = holder.dataset.userId;
+    _modalUsername = document.getElementById('username').innerText.replace('@', '');
+
+    if (!_modalUserId) return;
+
+    // Fill basic info
+    document.getElementById('modalAvatar').textContent = _modalUsername.charAt(0).toUpperCase();
+    document.getElementById('modalUsername').textContent = '@' + _modalUsername;
+    document.getElementById('modalRating').textContent = document.getElementById('rating').innerText;
+
+    // Fill photos
+    const photos = document.getElementById('modalPhotos');
+    const img1 = document.getElementById('user-image-1').src;
+    const img2 = document.getElementById('user-image-2').src;
+    photos.innerHTML = [img1, img2]
+        .filter(src => src && !src.endsWith('test.jpg'))
+        .map(src => `<img src="${src}" class="modal-photo" onclick="openPhotoFullscreen('${src}')">`)
+        .join('') || '<div class="modal-no-photos">Нет фотографий</div>';
+
+    // Reset friend button
+    const friendBtn = document.getElementById('modalFriendBtn');
+    friendBtn.disabled = false;
+    friendBtn.innerHTML = '<span>👤</span> Добавить в друзья';
+    friendBtn.className = 'profile-action-btn btn-friend';
+
+    // Check if already friend
+    fetch('/api/friends/').then(r => r.json()).then(friends => {
+        const isFriend = friends.some(f => String(f.id) === String(_modalUserId));
+        if (isFriend) {
+            friendBtn.innerHTML = '<span>✓</span> Уже друзья';
+            friendBtn.disabled = true;
+            friendBtn.className = 'profile-action-btn btn-friend btn-already';
+        }
+    }).catch(() => {});
+
+    document.getElementById('profileModal').style.display = 'flex';
+}
+
+function closeProfileModal() {
+    document.getElementById('profileModal').style.display = 'none';
+}
+
+function closeProfileModalBg(e) {
+    if (e.target.id === 'profileModal') closeProfileModal();
+}
+
+async function modalSendFriendRequest() {
+    if (!_modalUserId) return;
+    const btn = document.getElementById('modalFriendBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Отправка...';
+
+    try {
+        const res = await fetch('/api/friends/request/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to_id: _modalUserId })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            if (data.status === 'accepted') {
+                btn.innerHTML = '<span>✓</span> Теперь друзья!';
+                btn.className = 'profile-action-btn btn-friend btn-already';
+            } else {
+                btn.innerHTML = '<span>✓</span> Заявка отправлена';
+                btn.className = 'profile-action-btn btn-friend btn-already';
+            }
+        } else {
+            btn.innerHTML = '<span>👤</span> ' + (data.error || 'Ошибка');
+            btn.disabled = false;
+        }
+    } catch {
+        btn.innerHTML = '<span>👤</span> Ошибка';
+        btn.disabled = false;
+    }
+}
+
+function modalOpenChat() {
+    if (!_modalUserId) return;
+    window.location.href = `/chat/${_modalUserId}/`;
+}
+
+function openPhotoFullscreen(src) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+    overlay.innerHTML = `<img src="${src}" style="max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;">`;
+    overlay.onclick = () => overlay.remove();
+    document.body.appendChild(overlay);
+}
+</script>
 {% endblock %}

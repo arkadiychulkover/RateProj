@@ -2,278 +2,380 @@
 {% load static %}
 
 {% block content %}
-<style>
-    /* basic cabinet styles */
-    .cabinet-container {
-        display: flex;
-        flex-direction: column;
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 20px;
-        background-color: #f9f9f9;
-        border-radius: 8px;
-    }
+<div class="cab-layout">
 
-    .cabinet-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 20px;
-    }
-
-    .cabinet-tabs {
-        display: flex;
-        gap: 10px;
-        border-bottom: 2px solid #ddd;
-        padding-bottom: 10px;
-    }
-
-    .tab-btn {
-        padding: 10px 15px;
-        border: none;
-        background: none;
-        cursor: pointer;
-        font-weight: bold;
-        color: #555;
-    }
-
-    .tab-btn.active {
-        color: #007bff;
-        border-bottom: 3px solid #007bff;
-    }
-
-    .cabinet-content {
-        padding: 20px;
-        background: white;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        min-height: 300px;
-    }
-
-    .toggle-btn {
-        padding: 8px 12px;
-        border: 1px solid #007bff;
-        background-color: white;
-        color: #007bff;
-        cursor: pointer;
-        border-radius: 4px;
-    }
-    
-    .toggle-btn.private {
-        background-color: #007bff;
-        color: white;
-    }
-</style>
-
-<div class="cabinet-container">
-    <div class="cabinet-header">
-        <h2>My Cabinet <span id="current-username"></span></h2>
-        <div>
-            <span id="view-mode-label">Mode: PUBLIC</span>
-            <button id="toggle-view-btn" class="toggle-btn">Switch to PRIVATE</button>
+    <!-- Sidebar навигация -->
+    <nav class="cab-nav">
+        <div class="cab-user-card">
+            <div class="cab-avatar" id="cabAvatar">?</div>
+            <div class="cab-user-info">
+                <div class="cab-username" id="cabUsername">Загрузка...</div>
+                <div class="cab-view-mode" id="cabViewMode">PUBLIC</div>
+            </div>
         </div>
-    </div>
 
-    <div class="cabinet-tabs">
-        <button class="tab-btn active" data-zone="PROFILE_SETTINGS">Profile Settings</button>
-        <button class="tab-btn" data-zone="CONTACT_LIST">Contacts</button>
-        <button class="tab-btn" data-zone="CHANGING_ZONE">Changing Zone</button>
-        <button class="tab-btn" data-zone="STATISTICS">Statistics</button>
-    </div>
+        <div class="cab-nav-items">
+            <button class="cab-nav-btn active" data-zone="PROFILE_SETTINGS">
+                <span class="cab-nav-icon">👤</span> Профиль
+            </button>
+            <button class="cab-nav-btn" data-zone="CONTACT_LIST">
+                <span class="cab-nav-icon">👥</span> Контакты
+            </button>
+            <button class="cab-nav-btn" data-zone="CHANGING_ZONE">
+                <span class="cab-nav-icon">⚙️</span> Настройки
+            </button>
+            <button class="cab-nav-btn" data-zone="STATISTICS">
+                <span class="cab-nav-icon">📊</span> Статистика
+            </button>
+        </div>
 
-    <div id="cabinet-content-area" class="cabinet-content">
-        <!-- Content injected here via JS -->
-        Loading...
-    </div>
+        <div class="cab-nav-footer">
+            <a href="/lenta/users/lenta/" class="cab-back-btn">← Лента</a>
+        </div>
+    </nav>
+
+    <!-- Основной контент -->
+    <main class="cab-main" id="cabMain">
+        <div class="cab-loading">Загрузка...</div>
+    </main>
+
 </div>
 
-<!-- Assuming hardcoded user_id=1 for now as there is no login system yet -->
 <script>
-    const USER_ID = 1; 
+const USER_ID = {{ request.user.id }};
+const USERNAME = "{{ request.user.username|escapejs }}";
 
-    document.addEventListener("DOMContentLoaded", () => {
-        loadCabinetState();
+// ── Init ──────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('cabAvatar').textContent = USERNAME.charAt(0).toUpperCase();
+    document.getElementById('cabUsername').textContent = '@' + USERNAME;
 
-        // Bind tabs
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const zone = e.target.getAttribute('data-zone');
-                switchZone(zone);
-            });
+    document.querySelectorAll('.cab-nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.cab-nav-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            switchZone(btn.dataset.zone);
         });
-
-        // Bind ViewMode toggle
-        document.getElementById('toggle-view-btn').addEventListener('click', toggleViewMode);
     });
 
-    function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                    break;
-                }
-            }
-        }
-        return cookieValue;
+    loadCabinet();
+});
+
+async function loadCabinet() {
+    try {
+        const res = await fetch(`/api/cabinet/current/?user_id=${USER_ID}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        updateViewModeUI(data.viewMode);
+        setActiveZone(data.currentZone);
+        renderZone(data.currentZone);
+    } catch(e) {
+        renderZone('PROFILE_SETTINGS');
     }
+}
 
-    async function loadCabinetState() {
-        try {
-            const res = await fetch(`/cabinet/current/?user_id=${USER_ID}`);
-            if(!res.ok) {
-                document.getElementById('cabinet-content-area').innerHTML = `<p>Error loading cabinet. Make sure User ID ${USER_ID} exists.</p>`;
-                return;
-            }
-            const data = await res.json();
-            
-            if(data.currentUser) {
-                document.getElementById('current-username').textContent = `(@${data.currentUser.username})`;
-            }
+function setActiveZone(zone) {
+    document.querySelectorAll('.cab-nav-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.zone === zone);
+    });
+}
 
-            updateViewModeUI(data.viewMode);
-            setActiveTab(data.currentZone);
-            renderZoneContent(data.currentZone);
+function updateViewModeUI(mode) {
+    const el = document.getElementById('cabViewMode');
+    el.textContent = mode;
+    el.className = 'cab-view-mode ' + (mode === 'PRIVATE' ? 'mode-private' : 'mode-public');
+}
 
-        } catch (e) {
-            console.error(e);
+async function switchZone(zone) {
+    await fetch('/api/cabinet/switch_zone/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: USER_ID, zone })
+    });
+    renderZone(zone);
+}
+
+// ── Zone Renderers ────────────────────────────────────────────────────
+function renderZone(zone) {
+    const zones = {
+        PROFILE_SETTINGS: renderProfile,
+        CONTACT_LIST:     renderContacts,
+        CHANGING_ZONE:    renderSettings,
+        STATISTICS:       renderStatistics,
+    };
+    (zones[zone] || (() => {}))();
+}
+
+// ── PROFILE SETTINGS ─────────────────────────────────────────────────
+async function renderProfile() {
+    const main = document.getElementById('cabMain');
+    main.innerHTML = `
+        <div class="cab-section">
+            <div class="cab-section-title">Мои фотографии</div>
+            <div class="cab-photos-grid" id="photosGrid"><div class="cab-loading">Загрузка...</div></div>
+            <div class="cab-add-photo">
+                <input type="text" id="photoUrlInput" class="cab-input" placeholder="Вставь URL фотографии...">
+                <button class="cab-btn cab-btn-green" onclick="addPhoto()">+ Добавить</button>
+            </div>
+            <div id="photoError" class="cab-error" style="display:none"></div>
+        </div>
+    `;
+    loadPhotos();
+}
+
+async function loadPhotos() {
+    const grid = document.getElementById('photosGrid');
+    if (!grid) return;
+    try {
+        const res = await fetch(`/api/cabinet/images/?user_id=${USER_ID}`);
+        const images = await res.json();
+        if (!images.length) {
+            grid.innerHTML = '<div class="cab-empty">Нет фотографий. Добавь первую!</div>';
+            return;
         }
+        grid.innerHTML = images.map(img => `
+            <div class="cab-photo-item" id="photo-${img.id}">
+                <img src="${escHtml(img.url)}" alt="" onclick="openFullscreen('${escHtml(img.url)}')">
+                <button class="cab-photo-delete" onclick="deletePhoto(${img.id})" title="Удалить">✕</button>
+            </div>
+        `).join('');
+    } catch(e) {
+        grid.innerHTML = '<div class="cab-empty">Ошибка загрузки фото</div>';
     }
+}
 
-    async function switchZone(zone) {
-        try {
-            const res = await fetch('/cabinet/switch_zone/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken')
-                },
-                body: JSON.stringify({ user_id: USER_ID, zone: zone })
-            });
-            const data = await res.json();
-            if (data.success) {
-                setActiveTab(zone);
-                renderZoneContent(zone);
-            }
-        } catch (e) {
-            console.error("Failed to switch zone", e);
-        }
-    }
+async function addPhoto() {
+    const input = document.getElementById('photoUrlInput');
+    const errEl = document.getElementById('photoError');
+    const url = input.value.trim();
+    if (!url) return;
 
-    async function toggleViewMode() {
-        const btn = document.getElementById('toggle-view-btn');
-        const currentMode = btn.classList.contains('private') ? 'PRIVATE' : 'PUBLIC';
-        const newMode = currentMode === 'PUBLIC' ? 'PRIVATE' : 'PUBLIC';
-
-        try {
-            const res = await fetch('/cabinet/change_view_mode/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken')
-                },
-                body: JSON.stringify({ user_id: USER_ID, mode: newMode })
-            });
-            const data = await res.json();
-            if (data.success) {
-                updateViewModeUI(newMode);
-            }
-        } catch(e) {
-            console.error("Failed to change view mode", e);
-        }
-    }
-
-    function updateViewModeUI(mode) {
-        const btn = document.getElementById('toggle-view-btn');
-        const label = document.getElementById('view-mode-label');
-        
-        label.textContent = `Mode: ${mode}`;
-        if (mode === 'PRIVATE') {
-            btn.classList.add('private');
-            btn.textContent = 'Switch to PUBLIC';
-        } else {
-            btn.classList.remove('private');
-            btn.textContent = 'Switch to PRIVATE';
-        }
-    }
-
-    function setActiveTab(zone) {
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            if(btn.getAttribute('data-zone') === zone) {
-                btn.classList.add('active');
-            } else {
-                btn.classList.remove('active');
-            }
+    errEl.style.display = 'none';
+    try {
+        const res = await fetch('/api/cabinet/add_image/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: USER_ID, url })
         });
-    }
-
-    function renderZoneContent(zone) {
-        const contentArea = document.getElementById('cabinet-content-area');
-        
-        if (zone === 'PROFILE_SETTINGS') {
-            contentArea.innerHTML = `
-                <h3>Profile Settings</h3>
-                <p>Manage your account settings, upload photos, and update your information here.</p>
-                <div style="margin-top:20px;">
-                    <button onclick="alert('Feature coming soon')">Change Username</button>
-                    <button onclick="alert('Feature coming soon')">Change Password</button>
-                </div>
-            `;
-        } else if (zone === 'CONTACT_LIST') {
-            contentArea.innerHTML = `
-                <h3>Contacts & Friends</h3>
-                <p>Your friends list and friend requests will appear here.</p>
-            `;
-        } else if (zone === 'CHANGING_ZONE') {
-            contentArea.innerHTML = `
-                <h3>Changing Zone</h3>
-                <p>Advanced preferences and customizations.</p>
-            `;
-        } else if (zone === 'STATISTICS') {
-            fetchStatistics();
+        if (res.ok) {
+            input.value = '';
+            loadPhotos();
         } else {
-            contentArea.innerHTML = `<p>Unknown zone</p>`;
+            const d = await res.json();
+            errEl.textContent = d.error || 'Ошибка';
+            errEl.style.display = 'block';
         }
+    } catch(e) {
+        errEl.textContent = 'Ошибка сети';
+        errEl.style.display = 'block';
     }
+}
 
-    async function fetchStatistics() {
-        const contentArea = document.getElementById('cabinet-content-area');
-        contentArea.innerHTML = `<p>Loading statistics...</p>`;
-        
-        try {
-            const res = await fetch(`/cabinet/rating/${USER_ID}/`);
-            let ratingText = "N/A";
-            if(res.ok) {
-                const data = await res.json();
-                ratingText = data.rating;
-            }
+async function deletePhoto(imageId) {
+    if (!confirm('Удалить фото?')) return;
+    const res = await fetch(`/api/cabinet/${imageId}/remove_image/`, { method: 'DELETE' });
+    if (res.ok) document.getElementById(`photo-${imageId}`)?.remove();
+}
 
-            const logsRes = await fetch(`/cabinet/logs/?user_id=${USER_ID}&log_types=RATE`);
-            let logsHtml = "<ul>";
-            if(logsRes.ok) {
-                const logs = await logsRes.json();
-                logs.forEach(l => {
-                    logsHtml += `<li>Action: ${l.log_type}</li>`;
-                });
-                if(logs.length === 0) logsHtml += "<li>No rating actions found.</li>";
-            }
-            logsHtml += "</ul>";
-
-            contentArea.innerHTML = `
-                <h3>Statistics</h3>
-                <div style="padding: 15px; background:#eef; border-radius:5px; display:inline-block;">
-                    <h2>Your Rating: ${ratingText}</h2>
+// ── CONTACT LIST ──────────────────────────────────────────────────────
+async function renderContacts() {
+    const main = document.getElementById('cabMain');
+    main.innerHTML = `
+        <div class="cab-section">
+            <div class="cab-section-title">Друзья</div>
+            <div id="contactsList"><div class="cab-loading">Загрузка...</div></div>
+        </div>
+    `;
+    try {
+        const res = await fetch('/api/friends/');
+        const friends = await res.json();
+        const el = document.getElementById('contactsList');
+        if (!friends.length) {
+            el.innerHTML = '<div class="cab-empty">Пока нет друзей</div>';
+            return;
+        }
+        el.innerHTML = friends.map(f => `
+            <div class="cab-contact-item">
+                <div class="cab-contact-avatar">${f.username.charAt(0).toUpperCase()}</div>
+                <span class="cab-contact-name">@${escHtml(f.username)}</span>
+                <div class="cab-contact-actions">
+                    <a href="/chat/${f.id}/" class="cab-btn cab-btn-small cab-btn-purple">💬 Чат</a>
+                    <button class="cab-btn cab-btn-small cab-btn-red" onclick="removeFriend(${f.id}, this)">✕ Удалить</button>
                 </div>
-                <h4 style="margin-top:20px;">Recent Rating Activity Logs:</h4>
-                ${logsHtml}
-            `;
-
-        } catch(e) {
-            contentArea.innerHTML = `<p>Failed to load statistics.</p>`;
-        }
+            </div>
+        `).join('');
+    } catch(e) {
+        document.getElementById('contactsList').innerHTML = '<div class="cab-empty">Ошибка загрузки</div>';
     }
+}
+
+async function removeFriend(friendId, btn) {
+    if (!confirm('Удалить из друзей?')) return;
+    btn.disabled = true;
+    const res = await fetch('/api/friends/remove/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friend_id: friendId })
+    });
+    if (res.ok) btn.closest('.cab-contact-item').remove();
+    else btn.disabled = false;
+}
+
+// ── CHANGING ZONE ─────────────────────────────────────────────────────
+async function renderSettings() {
+    const main = document.getElementById('cabMain');
+
+    let currentMode = 'PUBLIC';
+    try {
+        const res = await fetch(`/api/cabinet/current/?user_id=${USER_ID}`);
+        if (res.ok) { const d = await res.json(); currentMode = d.viewMode; }
+    } catch(e) {}
+
+    main.innerHTML = `
+        <div class="cab-section">
+            <div class="cab-section-title">Режим профиля</div>
+            <div class="cab-setting-row">
+                <div>
+                    <div class="cab-setting-label">Видимость профиля</div>
+                    <div class="cab-setting-desc">PUBLIC — все видят твой профиль. PRIVATE — только друзья.</div>
+                </div>
+                <button class="cab-btn ${currentMode === 'PRIVATE' ? 'cab-btn-red' : 'cab-btn-green'}" id="viewModeBtn" onclick="toggleViewMode()">
+                    ${currentMode === 'PRIVATE' ? '🔒 PRIVATE' : '🌐 PUBLIC'}
+                </button>
+            </div>
+        </div>
+
+        <div class="cab-section cab-section-danger">
+            <div class="cab-section-title cab-danger-title">Опасная зона</div>
+            <div class="cab-setting-row">
+                <div>
+                    <div class="cab-setting-label">Деактивировать аккаунт</div>
+                    <div class="cab-setting-desc">Аккаунт будет скрыт, но данные сохранятся.</div>
+                </div>
+                <button class="cab-btn cab-btn-red" onclick="deactivateAccount()">Деактивировать</button>
+            </div>
+            <div class="cab-setting-row">
+                <div>
+                    <div class="cab-setting-label">Удалить аккаунт</div>
+                    <div class="cab-setting-desc">Все данные будут удалены безвозвратно.</div>
+                </div>
+                <button class="cab-btn cab-btn-red" onclick="deleteAccount()">Удалить аккаунт</button>
+            </div>
+        </div>
+    `;
+}
+
+async function toggleViewMode() {
+    const btn = document.getElementById('viewModeBtn');
+    const isPublic = btn.textContent.includes('PUBLIC');
+    const newMode = isPublic ? 'PRIVATE' : 'PUBLIC';
+    const res = await fetch('/api/cabinet/change_view_mode/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: USER_ID, mode: newMode })
+    });
+    if (res.ok) {
+        updateViewModeUI(newMode);
+        btn.textContent = newMode === 'PRIVATE' ? '🔒 PRIVATE' : '🌐 PUBLIC';
+        btn.className = `cab-btn ${newMode === 'PRIVATE' ? 'cab-btn-red' : 'cab-btn-green'}`;
+    }
+}
+
+async function deactivateAccount() {
+    if (!confirm('Деактивировать аккаунт? Вы будете разлогинены.')) return;
+    const res = await fetch('/api/cabinet/deactivate_account/', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: USER_ID })
+    });
+    if (res.ok) window.location.href = '/login/';
+}
+
+async function deleteAccount() {
+    if (!confirm('Удалить аккаунт НАВСЕГДА? Это действие необратимо!')) return;
+    if (!confirm('Вы уверены? Все данные будут удалены.')) return;
+    const res = await fetch('/api/cabinet/delete_account/', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: USER_ID })
+    });
+    if (res.ok) window.location.href = '/login/';
+}
+
+// ── STATISTICS ────────────────────────────────────────────────────────
+async function renderStatistics() {
+    const main = document.getElementById('cabMain');
+    main.innerHTML = `<div class="cab-loading">Загрузка статистики...</div>`;
+
+    try {
+        const [ratingRes, ratingsRes, logsRes] = await Promise.all([
+            fetch(`/api/cabinet/${USER_ID}/rating/`),
+            fetch(`/api/cabinet/${USER_ID}/ratings/`),
+            fetch(`/api/cabinet/logs/?user_id=${USER_ID}`),
+        ]);
+
+        const ratingData  = ratingRes.ok  ? await ratingRes.json()  : { rating: 0 };
+        const ratingsData = ratingsRes.ok ? await ratingsRes.json() : [];
+        const logsData    = logsRes.ok    ? await logsRes.json()    : [];
+
+        const avg = ratingData.rating || 0;
+        const tierNames = ['Sub3','Sub5','Lltn','Ltn','Hltn','Lmtn','Mtn','Hmtn','Lhtn','Htn','Hhtn','ChadLite','Chad','AdamLite','TrueAdam'];
+        const tierIdx = Math.max(0, Math.min(Math.round(avg) - 1, 14));
+        const tierName = avg > 0 ? tierNames[tierIdx] : 'Unrated';
+
+        const recentRatings = ratingsData.slice(0, 10).map(r => `
+            <div class="cab-stat-row">
+                <span class="cab-stat-label">Пользователь #${r.from}</span>
+                <span class="cab-stat-value">${r.value}</span>
+            </div>
+        `).join('') || '<div class="cab-empty">Оценок пока нет</div>';
+
+        const recentLogs = logsData.slice(0, 8).map(l => `
+            <div class="cab-log-item">
+                <span class="cab-log-type">${l.log_type}</span>
+                <span class="cab-log-text">${escHtml(l.text || '')}</span>
+            </div>
+        `).join('') || '<div class="cab-empty">Нет активности</div>';
+
+        main.innerHTML = `
+            <div class="cab-stats-grid">
+                <div class="cab-stat-card">
+                    <div class="cab-stat-card-label">Средний рейтинг</div>
+                    <div class="cab-stat-card-value">${avg.toFixed(1)}</div>
+                    <div class="cab-stat-card-tier">${tierName}</div>
+                </div>
+                <div class="cab-stat-card">
+                    <div class="cab-stat-card-label">Всего оценок</div>
+                    <div class="cab-stat-card-value">${ratingsData.length}</div>
+                </div>
+            </div>
+
+            <div class="cab-section">
+                <div class="cab-section-title">Последние оценки</div>
+                ${recentRatings}
+            </div>
+
+            <div class="cab-section">
+                <div class="cab-section-title">Активность</div>
+                ${recentLogs}
+            </div>
+        `;
+    } catch(e) {
+        main.innerHTML = '<div class="cab-empty">Ошибка загрузки статистики</div>';
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+function escHtml(t) {
+    return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function openFullscreen(src) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+    overlay.innerHTML = `<img src="${src}" style="max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;">`;
+    overlay.onclick = () => overlay.remove();
+    document.body.appendChild(overlay);
+}
 </script>
 {% endblock %}

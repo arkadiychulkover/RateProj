@@ -2,9 +2,20 @@ from django.contrib.auth.models import AnonymousUser
 from channels.db import database_sync_to_async
 from channels.middleware import BaseMiddleware
 from rest_framework_simplejwt.tokens import AccessToken
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
+
+
+class CookieJWTAuthentication(JWTAuthentication):
+    """DRF authentication — читает JWT из httpOnly куки accessToken."""
+    def authenticate(self, request):
+        raw_token = request.COOKIES.get('accessToken')
+        if raw_token is None:
+            return None
+        validated_token = self.get_validated_token(raw_token)
+        return self.get_user(validated_token), validated_token
 
 
 @database_sync_to_async

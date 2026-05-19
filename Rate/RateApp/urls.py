@@ -15,6 +15,7 @@ urlpatterns = [
     path('', views.login_page, name='login_page'),
     path('login/', views.login_page, name='login_page'),
     path('register/', views.register_page, name='register_page'),
+    path('cabinet/', views.cabinet_page, name='cabinet_page'),
     path('chat/', views.chat_home, name='chat_home'),
     path('chat/<int:user_id>/', views.chat_with, name='chat_with'),
 
@@ -34,4 +35,4 @@ urlpatterns = [
 
     # Chat API
     path('api/chat/<int:user_id>/', views.api_get_chat, name='api_get_chat'),
-]
+]

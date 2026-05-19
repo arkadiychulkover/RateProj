@@ -99,6 +99,7 @@ SIMPLE_JWT = {
 # Настройки REST Framework для использования JWT по умолчанию
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
+        'RateApp.middleware.CookieJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     )
 }

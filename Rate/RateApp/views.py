@@ -16,17 +16,9 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_http_methods
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from .middleware import CookieJWTAuthentication
 
 from .models import User, Message, FriendRequest, Rating
-
-class CookieJWTAuthentication(JWTAuthentication):
-    """Кастомная проверка токена из кук для DRF ViewSets"""
-    def authenticate(self, request):
-        raw_token = request.COOKIES.get('accessToken')
-        if raw_token is None:
-            return None
-        validated_token = self.get_validated_token(raw_token)
-        return self.get_user(validated_token), validated_token
 
 
 def login_page(request):
@@ -37,12 +29,30 @@ def register_page(request):
     return render(request, 'register.html')
 
 
+def cabinet_page(request):
+    return render(request, 'cabinet.html')
+
+
+def _get_ws_token(request):
+    """Генерирует JWT access token для WebSocket аутентификации."""
+    if request.user.is_authenticated:
+        refresh = RefreshToken.for_user(request.user)
+        return str(refresh.access_token)
+    return ''
+
+
 def chat_home(request):
-    return render(request, 'chat.html', {'chat_with_id': 'null'})
+    return render(request, 'chat.html', {
+        'chat_with_id': 'null',
+        'ws_token': _get_ws_token(request),
+    })
 
 
 def chat_with(request, user_id):
-    return render(request, 'chat.html', {'chat_with_id': user_id})
+    return render(request, 'chat.html', {
+        'chat_with_id': user_id,
+        'ws_token': _get_ws_token(request),
+    })
 
 
 # ─── Auth API ─────────────────────────────────────────────────────────────────
