@@ -124,6 +124,12 @@ class User(AbstractUser):
         choices=[(z.value, z.value) for z in CabinetZone]
     )
 
+    rated_users = models.ManyToManyField(
+        "self",
+        blank=True,
+        symmetrical=False
+    )
+
     def __str__(self):
         return (
             f"ID: {self.id} {self.username} ({self.email}) "

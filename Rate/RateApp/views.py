@@ -383,7 +383,7 @@ class UserRepository(IUserRepository):
     def create_user(self, username: str, email: str, password: str, **kwargs):
         user = User.objects.create_user(username=username, email=email, password=password)
         return user
-        
+
     def get_user(self, user_id: int):
         return User.objects.get(id=user_id)
     
@@ -392,7 +392,7 @@ class UserRepository(IUserRepository):
     
     def get_all_users(self):
         return User.objects.all()
-    
+
     def update_user(self, user_id: int, username: str = None, email: str = None):
         user = User.objects.get(id=user_id)
 
@@ -401,7 +401,7 @@ class UserRepository(IUserRepository):
             user.email = email if email else user.email
             user.save()
         return user
-    
+
     def delete_user(self, user_id: int):
         user = User.objects.get(id=user_id)
         if user != None:
@@ -417,7 +417,7 @@ class UserRepository(IUserRepository):
             user.save()
             friend.save()
         return user
-    
+
     def remove_friend(self, user_id: int, friend_id: int):
         user = User.objects.get(id=user_id)
         friend = User.objects.get(id=friend_id)
@@ -428,13 +428,13 @@ class UserRepository(IUserRepository):
             user.save()
             friend.save()
         return user
-    
+
     def get_friends(self, user_id: int):
         user = User.objects.get(id=user_id)
         if user != None:
             return user.friends.all()
         return []
-    
+
     def is_friend(self, user_id: int, friend_id: int):
         user = User.objects.get(id=user_id)
         friend = User.objects.get(id=friend_id)
@@ -442,7 +442,7 @@ class UserRepository(IUserRepository):
         if user != None and friend != None:
             return friend in user.friends.all()
         return False
-    
+
     def create_friend_request(self, from_id: int, to_id: int):
         from_user = User.objects.get(id=from_id)
         to_user = User.objects.get(id=to_id)
@@ -451,7 +451,7 @@ class UserRepository(IUserRepository):
             request = FriendRequest.objects.create(from_user=from_user, to_user=to_user)
             return request
         return None
-    
+
     def accept_friend_request(self, request_id: int):
         request = FriendRequest.objects.get(id=request_id)
         if request != None:
@@ -460,33 +460,34 @@ class UserRepository(IUserRepository):
             self.add_friend(request.from_user.id, request.to_user.id)
             return request
         return False
-    
+
     def reject_friend_request(self, request_id: int):
         request = FriendRequest.objects.get(id=request_id)
         if request != None:
             request.delete()
             return True
         return False
-    
+
     def get_friend_requests(self, user_id: int):
         return FriendRequest.objects.filter(to_user_id=user_id)
-    
+
     def send_message(self, sender_id: int, recipient_id: int, msg: MessageModel):
         sender = User.objects.get(id=sender_id)
         recipient = User.objects.get(id=recipient_id)
 
         if sender != None and recipient != None:
-            message = Message.objects.create(sender=sender, recipient=recipient, message_text=msg.text, send_time=msg.send_time, is_read=msg.is_read)
+            message = Message.objects.create(sender=sender, recipient=recipient, message_text=msg.text,
+                                             send_time=msg.send_time, is_read=msg.is_read)
             message.save()
             return message
         return None
-    
+
     def get_messages(self, user_id):
         user = User.objects.get(id=user_id)
         if user != None:
             return user.received_messages.all()
         return []
-    
+
     def get_chat(self, user_id, other_user_id):
         user = User.objects.get(id=user_id)
         other_user = User.objects.get(id=other_user_id)
@@ -495,7 +496,7 @@ class UserRepository(IUserRepository):
             messages = Message.objects.filter(sender_id=user_id, recipient_id=other_user_id) | Message.objects.filter(sender_id=other_user_id, recipient_id=user_id)
             return messages.order_by('send_time')
         return []
-    
+
     def mark_message_as_read(self, message_id: int):
         message = Message.objects.get(id=message_id)
         if message != None:
@@ -503,7 +504,7 @@ class UserRepository(IUserRepository):
             message.save()
             return message
         return None
-    
+
     def add_rating(self, user_id: int, from_user_id: int, rate):
         user = User.objects.get(id=user_id)
         from_user = User.objects.get(id=from_user_id)
@@ -513,16 +514,16 @@ class UserRepository(IUserRepository):
             rating.save()
             return rating
         return None
-    
+
     def get_rating(self, user_id: int):
         ratings = Rating.objects.filter(user_id=user_id)
         if ratings.count() > 0:
             return int(sum(r.value for r in ratings) / ratings.count())
         return 0
-    
+
     def get_ratings(self, user_id: int):
         return Rating.objects.filter(user_id=user_id)
-    
+
     def add_image(self, user_id: int, url: str):
         user = User.objects.get(id=user_id)
         if user != None:
@@ -530,17 +531,17 @@ class UserRepository(IUserRepository):
             image.save()
             return image
         return None
-    
+
     def remove_image(self, image_id: int):
         image = Image.objects.get(id=image_id)
         if image is not None:
             image.delete()
             return True
         return False
-    
+
     def get_images(self, user_id: int):
         return Image.objects.filter(user_id=user_id)
-    
+
     def add_log(self, user_id: int, log):
         user = User.objects.get(id=user_id)
         if user is not None:
@@ -548,7 +549,7 @@ class UserRepository(IUserRepository):
             log_entry.save()
             return log_entry
         return None
-    
+
     def get_logs(self, user_id: int):
         return LogEntry.objects.filter(user_id=user_id)
     
@@ -558,7 +559,7 @@ class UserRepository(IUserRepository):
             user.delete()
             return True
         return False
-    
+
     def deactivate_account(self, user_id: int):
         user = User.objects.get(id=user_id)
         if user is not None:
