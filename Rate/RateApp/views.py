@@ -2,13 +2,293 @@ import json
 
 from django.http import HttpResponseNotFound, JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django.shortcuts import render, redirect
 from abc import ABC, abstractmethod
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from .models import *
 from .models import UserSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+from datetime import datetime
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_http_methods
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
+from .models import User, Message, FriendRequest, Rating
+
+class CookieJWTAuthentication(JWTAuthentication):
+    """Кастомная проверка токена из кук для DRF ViewSets"""
+    def authenticate(self, request):
+        raw_token = request.COOKIES.get('accessToken')
+        if raw_token is None:
+            return None
+        validated_token = self.get_validated_token(raw_token)
+        return self.get_user(validated_token), validated_token
+
+
+def login_page(request):
+    return render(request, 'login.html')
+
+
+def register_page(request):
+    return render(request, 'register.html')
+
+
+def chat_home(request):
+    return render(request, 'chat.html', {'chat_with_id': 'null'})
+
+
+def chat_with(request, user_id):
+    return render(request, 'chat.html', {'chat_with_id': user_id})
+
+
+# ─── Auth API ─────────────────────────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def api_register(request):
+    username = request.data.get('username', '').strip()
+    email = request.data.get('email', '').strip()
+    password = request.data.get('password', '').strip()
+
+    if not username or not email or not password:
+        return Response({'error': 'Все поля обязательны'}, status=400)
+
+    if User.objects.filter(username=username).exists():
+        return Response({'error': 'Такой логин уже занят'}, status=400)
+
+    if User.objects.filter(email=email).exists():
+        return Response({'error': 'Такой email уже используется'}, status=400)
+
+    # Создаем пользователя
+    user = User.objects.create_user(username=username, email=email, password=password)
+    
+    # Автоматически авторизуем сессию в Django
+    login(request, user)
+    
+    # Генерируем JWT токены
+    refresh = RefreshToken.for_user(user)
+    access_token = str(refresh.access_token)
+    refresh_token = str(refresh)
+
+    response = Response({
+        'success': True,
+        'user_id': user.id,
+        'username': user.username,
+    }, status=201)
+
+    # Записываем токены в безопасные куки
+    response.set_cookie(
+        key='accessToken',
+        value=access_token,
+        httponly=True,   # Защита от кражи через JS (XSS уязвимости)
+        samesite='Lax',  # Защита от CSRF
+        secure=False,    # Поставь True, когда проект будет на продакшене с HTTPS
+        max_age=86400    # Время жизни: 1 день
+    )
+    response.set_cookie(
+        key='refreshToken',
+        value=refresh_token,
+        httponly=True,
+        samesite='Lax',
+        secure=False,
+        max_age=604800   # Время жизни: 7 дней
+    )
+    return response
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def api_login(request):
+    username = request.data.get('username', '').strip()
+    password = request.data.get('password', '').strip()
+
+    if not username or not password:
+        return Response({'error': 'Заполните все поля'}, status=400)
+
+    user = authenticate(username=username, password=password)
+    if user:
+        if not user.is_active:
+            return Response({'error': 'Аккаунт заблокирован'}, status=403)
+
+        # Авторизуем сессию в Django
+        login(request, user)
+
+        # Генерируем JWT токены
+        refresh = RefreshToken.for_user(user)
+        access_token = str(refresh.access_token)
+        refresh_token = str(refresh)
+
+        response = Response({
+            'success': True,
+            'user_id': user.id,
+            'username': user.username,
+        }, status=200)
+
+        # Записываем токены в безопасные куки
+        response.set_cookie(
+            key='accessToken',
+            value=access_token,
+            httponly=True,
+            samesite='Lax',
+            secure=False,
+            max_age=86400  # 1 день
+        )
+        response.set_cookie(
+            key='refreshToken',
+            value=refresh_token,
+            httponly=True,
+            samesite='Lax',
+            secure=False,
+            max_age=604800  # 7 дней
+        )
+        return response
+        
+    return Response({'error': 'Неверный логин или пароль'}, status=401)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_me(request):
+    return Response({'id': request.user.id, 'username': request.user.username})
+
+
+# ─── Friends API ──────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_get_friends(request):
+    friends = request.user.friends.all()
+    data = [{'id': f.id, 'username': f.username} for f in friends]
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_search_users(request):
+    query = request.query_params.get('q', '').strip()
+    if len(query) < 2:
+        return Response([])
+    users = User.objects.filter(username__icontains=query).exclude(id=request.user.id)[:10]
+
+    friend_ids = set(request.user.friends.values_list('id', flat=True))
+    sent_ids = set(FriendRequest.objects.filter(
+        from_user=request.user, is_accepted=False
+    ).values_list('to_user_id', flat=True))
+
+    data = []
+    for u in users:
+        data.append({
+            'id': u.id,
+            'username': u.username,
+            'is_friend': u.id in friend_ids,
+            'request_sent': u.id in sent_ids,
+        })
+    return Response(data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def api_send_friend_request(request):
+    to_id = request.data.get('to_id')
+    try:
+        to_user = User.objects.get(id=to_id)
+    except User.DoesNotExist:
+        return Response({'error': 'Пользователь не найден'}, status=404)
+
+    if to_user == request.user:
+        return Response({'error': 'Нельзя добавить себя'}, status=400)
+
+    if request.user.friends.filter(id=to_id).exists():
+        return Response({'error': 'Уже в друзьях'}, status=400)
+
+    existing = FriendRequest.objects.filter(
+        from_user=request.user, to_user=to_user, is_accepted=False
+    ).first()
+    if existing:
+        return Response({'error': 'Запрос уже отправлен'}, status=400)
+
+    # If the other user already sent us a request — auto-accept
+    reverse = FriendRequest.objects.filter(
+        from_user=to_user, to_user=request.user, is_accepted=False
+    ).first()
+    if reverse:
+        reverse.is_accepted = True
+        reverse.save()
+        request.user.friends.add(to_user)
+        return Response({'status': 'accepted', 'message': 'Вы теперь друзья!'})
+
+    req = FriendRequest.objects.create(from_user=request.user, to_user=to_user)
+    return Response({'status': 'sent', 'request_id': req.id})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_get_friend_requests(request):
+    reqs = FriendRequest.objects.filter(to_user=request.user, is_accepted=False)
+    data = [{'id': r.id, 'from_id': r.from_user.id, 'from_username': r.from_user.username} for r in reqs]
+    return Response(data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def api_accept_friend_request(request, req_id):
+    try:
+        req = FriendRequest.objects.get(id=req_id, to_user=request.user)
+    except FriendRequest.DoesNotExist:
+        return Response({'error': 'Запрос не найден'}, status=404)
+
+    req.is_accepted = True
+    req.save()
+    request.user.friends.add(req.from_user)
+    return Response({'status': 'ok', 'friend': {'id': req.from_user.id, 'username': req.from_user.username}})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def api_reject_friend_request(request, req_id):
+    try:
+        req = FriendRequest.objects.get(id=req_id, to_user=request.user)
+        req.delete()
+        return Response({'status': 'ok'})
+    except FriendRequest.DoesNotExist:
+        return Response({'error': 'Запрос не найден'}, status=404)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def api_remove_friend(request):
+    friend_id = request.data.get('friend_id')
+    try:
+        friend = User.objects.get(id=friend_id)
+        request.user.friends.remove(friend)
+        return Response({'status': 'ok'})
+    except User.DoesNotExist:
+        return Response({'error': 'Пользователь не найден'}, status=404)
+
+
+# ─── Chat API ─────────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def api_get_chat(request, user_id):
+    messages = Message.objects.filter(
+        sender_id__in=[request.user.id, user_id],
+        recipient_id__in=[request.user.id, user_id]
+    ).order_by('send_time')[:100]
+
+    data = [{
+        'id': m.id,
+        'sender_id': m.sender_id,
+        'text': m.message_text,
+        'time': m.send_time.strftime('%H:%M') if m.send_time else '',
+        'is_read': m.is_read,
+    } for m in messages]
+    return Response(data)
+
 
 class IUserRepository(ABC):
     @abstractmethod
@@ -301,6 +581,8 @@ class UserRepository(IUserRepository):
 
 
 class UserView(viewsets.ViewSet):
+    authentication_classes = [CookieJWTAuthentication]
+
     def __init__(self, **kwargs):
         self.user_repository = UserRepository()
         super().__init__(**kwargs)
@@ -356,26 +638,30 @@ class UserView(viewsets.ViewSet):
     @action(methods=['get'], detail=False)
     def lenta(self, request):
         users = []
-        # owner = User.objects.get(id=request.user.id)
-        # while len(users) < 10:
-        #     user = self.user_repository.get_random_user()
-        #     if user not in owner.rated_users.all() and user != owner:
-        #         users.append(user)
+        owner = request.user
+        
+        if not owner.is_authenticated:
+                return JsonResponse({"error": "Unauthorized"}, status=401)
+        
+        while len(users) < 10:
+            user = self.user_repository.get_random_user()
+            if user not in owner.rated_users.all() and user != owner:
+                users.append(user)
 
         return render(request, 'lenta.html', {'users': users})
 
     @action(methods=['post'], detail=True)
     def add_rating(self, request, pk=None):
 
-        # data = json.loads(request.body)
-        # rate = data.get('rate')
-        # owner = request.user
-        # user = User.objects.get(id=pk)
+        data = json.loads(request.body)
+        rate = data.get('rate')
+        owner = request.user
+        user = User.objects.get(id=pk)
 
-        # user.rating += float(rate)
-        # user.rated_count += 1
-        # user.save()
-        # owner.rated_users.add(user)
+        user.rating += float(rate)
+        user.rated_count += 1
+        user.save()
+        owner.rated_users.add(user)
 
         return JsonResponse({
             "success": True
@@ -384,21 +670,24 @@ class UserView(viewsets.ViewSet):
     @action(methods=['get'], detail=False)
     def get_random_user(self, request):
         try:
-            user = self.user_repository.get_random_user()
-            serialized = UserSerializer(user)
-            return Response(serialized.data)
+            owner = request.user
+            if not owner.is_authenticated:
+                return JsonResponse({"error": "Unauthorized"}, status=401)
+                
+            while True:
+                user = self.user_repository.get_random_user()
+                if owner and user:
+                    if user == owner or user in owner.rated_users.all():
+                        continue
+                        
+                    serializer = UserSerializer(user)
+                    # serializer = UserSerializer(self.user_repository.get_user(owner.id))
+                    return Response(serializer.data)
+                else:
+                    return Response({"error": "No users found"}, status=404)
         except Exception as e:
             print(e)
-        # owner = User.objects.get(id=request.user.id)
-        # while True:
-            # user = self.user_repository.get_random_user()
-            # if owner and user:
-            #     has_rated = user in owner.rated_users.all()
-            #     if not has_rated:
-            #         return JsonResponse(json.dumps(user), safe=False)
-            #         break
-            #     else:
-            #         continue
+            return Response({"error": str(e)}, status=500)
 
     @action(methods=['get'], detail=False)
     def seed_users(self, request):
@@ -435,15 +724,23 @@ class UserView(viewsets.ViewSet):
     
     @action(methods=['get'], detail=False)
     def get_user_rating(self, request):
-        # user = User.objects.get(id=request.user.id)
-        # rating = int(user.rating)/user.rated_count
-        # tier_index = max(1, min(rating, 15))
-        # tier = Rate(tier_index)
-        tier = Rate(4)
-        print(Rate.get_name(4))
+        user = request.user
+        if not user.is_authenticated:
+            return JsonResponse({"error": "Unauthorized"}, status=401)
+        
+        print(f"User {user.username} has rating {user.rating} and rated_count {user.rated_count}")
+        if user.rated_count == 0:
+            rating = 0
+        else:
+            rating = int(user.rating) / user.rated_count
+            
+        tier_index = max(1, min(int(rating), 15))
+        display_rating = UserSerializer(user).get_display_rating(user)
+
         return Response({
-            "tier_number": tier.value,
-            "tier_name": Rate.get_name(4)
+            "tier_number": tier_index,
+            "tier_name": Rate.get_name(tier_index),
+            "display_rating": display_rating,
         })
 class CabinetView(viewsets.ViewSet):
     def __init__(self, **kwargs):

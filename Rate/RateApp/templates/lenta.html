@@ -2,56 +2,54 @@
 {% load static %}
 
 {% block content %}
-
 <div class="feed-layout">
-
-    <aside class="sidebar left-sidebar">
-        <div class="banner">
-            banner
-        </div>
-
-        <div class="banner">
-            banner
-        </div>
+    <aside class="sidebar">
+        <div class="banner">ADS</div>
+        <div class="banner">ADS</div>
     </aside>
 
     <main class="feed">
-
-        <div class="post-card">
-
+        <div class="post-card" id="main-post-card">
             <div class="post-header">
-                <div class="username" id="username">
-                    @username
-                </div>
-
-                <div class="post-rating" id="rating">
-                    Rating: 0
-                </div>
+                <div class="username" id="username">@username</div>
+                <div class="post-rating" id="rating">Rating: 0</div>
             </div>
 
-            <div class="post-image">
-                <img id="user-image" src="{% static 'img/test.jpg' %}" alt="">
+            <div class="post-images-container">
+                <div class="image-wrapper">
+                    <img id="user-image-1" src="{% static 'img/test.jpg' %}" alt="">
+                </div>
+                <div class="image-wrapper">
+                    <img id="user-image-2" src="{% static 'img/test.jpg' %}" alt="">
+                </div>
             </div>
 
             <div class="post-footer">
-                <button class="rate-btn" id="rate-btn">
-                    RATE
-                </button>
+                <div class="rating-grid">
+                    <button class="rate-num" data-value="1">Sub3</button>
+                    <button class="rate-num" data-value="2">Sub5</button>
+                    <button class="rate-num" data-value="3">Lltn</button>
+                    <button class="rate-num" data-value="4">Ltn</button>
+                    <button class="rate-num" data-value="5">Hltn</button>
+                    <button class="rate-num" data-value="6">Lmtn</button>
+                    <button class="rate-num" data-value="7">Mtn</button>
+                    <button class="rate-num" data-value="8">Hmtn</button>
+                    <button class="rate-num" data-value="9">Lhtn</button>
+                    <button class="rate-num" data-value="10">Htn</button>
+                    <button class="rate-num" data-value="11">Hhtn</button>
+                    <button class="rate-num" data-value="12">CL</button>
+                    <button class="rate-num" data-value="13">Chad</button>
+                    <button class="rate-num" data-value="14">AdamLite</button>
+                    <button class="rate-num" data-value="15">TrueAdam</button>
+                </div>
+                <div id="rate-data-holder" data-user-id=""></div>
             </div>
-
         </div>
-
     </main>
 
-    <aside class="sidebar right-sidebar">
-        <div class="banner">
-            banner
-        </div>
-
-        <div class="banner">
-            banner
-        </div>
+    <aside class="sidebar">
+        <div class="banner">ADS</div>
+        <div class="banner">ADS</div>
     </aside>
-
 </div>
 {% endblock %}
