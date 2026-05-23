@@ -93,9 +93,6 @@ def api_register(request):
     # Создаем пользователя
     user = User.objects.create_user(username=username, email=email, password=password)
     
-    # Автоматически авторизуем сессию в Django
-    login(request, user)
-    
     # Генерируем JWT токены
     refresh = RefreshToken.for_user(user)
     access_token = str(refresh.access_token)
@@ -140,9 +137,6 @@ def api_login(request):
     if user:
         if not user.is_active:
             return Response({'error': 'Аккаунт заблокирован'}, status=403)
-
-        # Авторизуем сессию в Django
-        login(request, user)
 
         # Генерируем JWT токены
         refresh = RefreshToken.for_user(user)
