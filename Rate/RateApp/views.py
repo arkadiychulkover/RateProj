@@ -1,5 +1,10 @@
 import json
+import uuid
+import os
 
+
+from django.shortcuts import get_object_or_404
+from django.conf import settings
 from django.http import HttpResponseNotFound, JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import action, api_view, permission_classes
@@ -17,19 +22,27 @@ from django.views.decorators.http import require_http_methods
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .middleware import CookieJWTAuthentication
+from rest_framework.permissions import IsAdminUser
 
+from django.core.files.storage import FileSystemStorage
 from .models import User, Message, FriendRequest, Rating
 
 
 def login_page(request):
+    if request.user.is_authenticated:
+        return redirect('/lenta/users/lenta/')
     return render(request, 'login.html')
 
 
 def register_page(request):
+    if request.user.is_authenticated:
+        return redirect('/lenta/users/lenta/')
     return render(request, 'register.html')
 
 
 def cabinet_page(request):
+    if not request.user.is_authenticated:
+        return redirect('login_page')
     return render(request, 'cabinet.html')
 
 
@@ -42,6 +55,8 @@ def _get_ws_token(request):
 
 
 def chat_home(request):
+    if not request.user.is_authenticated:
+        return redirect('login_page')
     return render(request, 'chat.html', {
         'chat_with_id': 'null',
         'ws_token': _get_ws_token(request),
@@ -49,6 +64,8 @@ def chat_home(request):
 
 
 def chat_with(request, user_id):
+    if not request.user.is_authenticated:
+        return redirect('login_page')
     return render(request, 'chat.html', {
         'chat_with_id': user_id,
         'ws_token': _get_ws_token(request),
@@ -164,6 +181,16 @@ def api_login(request):
 @permission_classes([IsAuthenticated])
 def api_me(request):
     return Response({'id': request.user.id, 'username': request.user.username})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def api_logout(request):
+    response = Response({'success': True})
+    response.delete_cookie('accessToken')
+    response.delete_cookie('refreshToken')
+    logout(request)
+    return response
 
 
 # ─── Friends API ──────────────────────────────────────────────────────────────
@@ -398,7 +425,7 @@ class UserRepository(IUserRepository):
         return User.objects.get(id=user_id)
     
     def get_random_user(self):
-        return User.objects.order_by('?').first()
+        return User.objects.order_by('?').prefetch_related('images').first()
     
     def get_all_users(self):
         return User.objects.all()
@@ -536,16 +563,24 @@ class UserRepository(IUserRepository):
 
     def add_image(self, user_id: int, url: str):
         user = User.objects.get(id=user_id)
+        print(f"Adding image for user {user_id} with url {url}")
         if user != None:
             image = Image.objects.create(user=user, url=url)
             image.save()
+            user.url_paths.append(url)
+            user.save()
+            print(f"Image added with id {image.id}")
             return image
         return None
 
     def remove_image(self, image_id: int):
         image = Image.objects.get(id=image_id)
+        user = User.objects.get(id=image.user.id)
         if image is not None:
             image.delete()
+            urls = user.url_paths
+            new_urls = [i for i in urls if i != image.url]
+            user.url_paths = new_urls
             return True
         return False
 
@@ -593,10 +628,7 @@ class UserRepository(IUserRepository):
 
 class UserView(viewsets.ViewSet):
     authentication_classes = [CookieJWTAuthentication]
-
-    def __init__(self, **kwargs):
-        self.user_repository = UserRepository()
-        super().__init__(**kwargs)
+    user_repository = UserRepository()
 
     @action(methods=['post'], detail=False)
     def create_user(self, request):
@@ -648,22 +680,16 @@ class UserView(viewsets.ViewSet):
 
     @action(methods=['get'], detail=False)
     def lenta(self, request):
-        users = []
         owner = request.user
-        
         if not owner.is_authenticated:
-                return JsonResponse({"error": "Unauthorized"}, status=401)
+            return redirect('login_page')
         
-        while len(users) < 10:
-            user = self.user_repository.get_random_user()
-            if user not in owner.rated_users.all() and user != owner:
-                users.append(user)
-
-        return render(request, 'lenta.html', {'users': users})
+        rated_ids = owner.rated_users.values_list('id', flat=True)
+        users = User.objects.exclude(id=owner.id).exclude(id__in=rated_ids).order_by('?')[:10]
+        return render(request, 'lenta.html', {'users': list(users)})
 
     @action(methods=['post'], detail=True)
     def add_rating(self, request, pk=None):
-
         data = json.loads(request.body)
         rate = data.get('rate')
         owner = request.user
@@ -673,6 +699,12 @@ class UserView(viewsets.ViewSet):
         user.rated_count += 1
         user.save()
         owner.rated_users.add(user)
+
+        # Create actual Rating object for the statistics
+        Rating.objects.create(user=user, from_user=owner, value=float(rate))
+        
+        # Create LogEntry
+        LogEntry.objects.create(user=owner, log_type=LogType.RATE.value, text=f"Поставил оценку {rate} пользователю @{user.username}")
 
         return JsonResponse({
             "success": True
@@ -685,31 +717,25 @@ class UserView(viewsets.ViewSet):
             if not owner.is_authenticated:
                 return JsonResponse({"error": "Unauthorized"}, status=401)
                 
-            while True:
-                user = self.user_repository.get_random_user()
-                if owner and user:
-                    if user == owner or user in owner.rated_users.all():
-                        continue
-                        
-                    serializer = UserSerializer(user)
-                    # serializer = UserSerializer(self.user_repository.get_user(owner.id))
-                    return Response(serializer.data)
-                else:
-                    return Response({"error": "No users found"}, status=404)
+            rated_ids = owner.rated_users.values_list('id', flat=True)
+            candidate = User.objects.exclude(id=owner.id).exclude(id__in=rated_ids).order_by('?').first()
+            if candidate:
+                serializer = UserSerializer(candidate)
+                return Response(serializer.data)
+            else:
+                return Response({"error": "No unrated users left"}, status=404)
         except Exception as e:
             print(e)
             return Response({"error": str(e)}, status=500)
 
     @action(methods=['get'], detail=False)
     def seed_users(self, request):
-
         from faker import Faker
         import random
 
         fake = Faker()
 
         for i in range(50):
-
             username = fake.user_name() + str(random.randint(1, 9999))
             email = fake.email()
 
@@ -721,12 +747,17 @@ class UserView(viewsets.ViewSet):
 
             user.rating = random.randint(0, 5000)
             user.rated_count = random.randint(0, 1000)
-
-            user.url_paths = [
-                f"https://picsum.photos/500/500?random={random.randint(1,999999)}"
-            ]
-
             user.save()
+
+            # Seed exactly 2 photos for each user
+            Image.objects.create(
+                user=user,
+                url=f"https://picsum.photos/500/500?random={random.randint(1, 999999)}"
+            )
+            Image.objects.create(
+                user=user,
+                url=f"https://picsum.photos/500/500?random={random.randint(1, 999999)}"
+            )
 
         return JsonResponse({
             "success": True,
@@ -753,120 +784,138 @@ class UserView(viewsets.ViewSet):
             "tier_name": Rate.get_name(tier_index),
             "display_rating": display_rating,
         })
+    
+
 class CabinetView(viewsets.ViewSet):
-    def __init__(self, **kwargs):
-        self.user_repository = UserRepository()
-        super().__init__(**kwargs)
-
-    @action(methods=['get'], detail=False)
-    def cabinet_page(self, request):
-        """Returns the SPA HTML page for the cabinet."""
-        return render(request, 'cabinet.html')
-
+    user_repository = UserRepository()
+    
     @action(methods=['get'], detail=False)
     def current(self, request):
-        """GET_Cabinet(): returns the current user's cabinet state."""
         user_id = request.query_params.get('user_id')
         if not user_id:
             return HttpResponseBadRequest("user_id required")
-        try:
-            user = self.user_repository.get_user(user_id)
-            return Response({
-                "currentUser": UserSerializer(user).data,
-                "currentZone": user.cabinet_zone,
-                "viewMode": user.view_mode
-            })
-        except User.DoesNotExist:
-            return HttpResponseNotFound("User not found")
+        user = get_object_or_404(User, id=user_id)
+        return Response({
+            "viewMode": user.view_mode,
+            "currentZone": user.cabinet_zone
+        })
 
     @action(methods=['post'], detail=False)
     def switch_zone(self, request):
-        """POST_SwitchZone(zone: CabinetZone): void"""
         user_id = request.data.get('user_id')
         zone = request.data.get('zone')
         if not user_id or not zone:
             return HttpResponseBadRequest("user_id and zone required")
-        try:
-            user = self.user_repository.get_user(user_id)
-            if zone in [z.value for z in CabinetZone]:
-                user.cabinet_zone = zone
-                user.save()
-                return Response({"success": True, "currentZone": zone})
-            return HttpResponseBadRequest("Invalid zone")
-        except User.DoesNotExist:
-            return HttpResponseNotFound("User not found")
+        user = get_object_or_404(User, id=user_id)
+        user.cabinet_zone = zone
+        user.save()
+        return Response({"success": True})
 
     @action(methods=['post'], detail=False)
     def change_view_mode(self, request):
-        """POST_ChangeViewMode(mode: ViewMode): void"""
         user_id = request.data.get('user_id')
         mode = request.data.get('mode')
         if not user_id or not mode:
             return HttpResponseBadRequest("user_id and mode required")
-        try:
-            user = self.user_repository.get_user(user_id)
-            if mode in [m.value for m in ViewMode]:
-                user.view_mode = mode
-                user.save()
-                return Response({"success": True, "viewMode": mode})
-            return HttpResponseBadRequest("Invalid mode")
-        except User.DoesNotExist:
-            return HttpResponseNotFound("User not found")
+        user = get_object_or_404(User, id=user_id)
+        user.view_mode = mode
+        user.save()
+        return Response({"success": True})
 
     @action(methods=['get'], detail=False)
-    def messages(self, request):
-        """GET_Messages(userId: int): List[Message]"""
+    def images(self, request):
         user_id = request.query_params.get('user_id')
         if not user_id:
             return HttpResponseBadRequest("user_id required")
-        messages = self.user_repository.get_messages(user_id)
-        # Using simple dicts as we don't have MessageSerializer defined above easily
-        return Response([{"id": m.id, "text": m.message_text, "is_read": m.is_read} for m in messages])
-
-    @action(methods=['get'], detail=True)
-    def message(self, request, pk=None):
-        """GET_Message(messageId: int): Message"""
-        try:
-            message = Message.objects.get(id=pk)
-            return Response({"id": message.id, "text": message.message_text, "is_read": message.is_read})
-        except Message.DoesNotExist:
-            return HttpResponseNotFound("Message not found")
-
-    @action(methods=['put'], detail=True)
-    def mark_as_read(self, request, pk=None):
-        """PUT_MarkAsRead(messageId: int): bool"""
-        msg = self.user_repository.mark_message_as_read(pk)
-        if msg:
-            return Response({"success": True})
-        return HttpResponseNotFound("Message not found")
-
-    @action(methods=['delete'], detail=True)
-    def delete_message(self, request, pk=None):
-        """DELETE_Message(messageId: int): bool"""
-        try:
-            msg = Message.objects.get(id=pk)
-            msg.delete()
-            return Response({"success": True})
-        except Message.DoesNotExist:
-            return HttpResponseNotFound("Message not found")
+        user = get_object_or_404(User, id=user_id)
+        images = Image.objects.filter(user=user)
+        serializer = ImageSerializer(images, many=True)
+        return Response(serializer.data)
 
     @action(methods=['post'], detail=False)
-    def add_rating(self, request):
-        """POST_AddRating(userId: int, fromUserId: int, rate: Rating): bool"""
+    def add_image(self, request):
         user_id = request.data.get('user_id')
-        from_user_id = request.data.get('from_user_id')
-        rate_val = request.data.get('rate')
-        
-        if not all([user_id, from_user_id, rate_val]):
-            return HttpResponseBadRequest("Missing parameters")
+        if 'front' not in request.FILES or 'profile' not in request.FILES:
+            return HttpResponseBadRequest("Both 'front' and 'profile' images are required.")
             
-        rating = self.user_repository.add_rating(user_id, from_user_id, rate_val)
+        front = request.FILES['front']
+        side = request.FILES['profile']
+        if not user_id:
+            return HttpResponseBadRequest("user_id is required")
+
+        user = get_object_or_404(User, id=user_id)
         
-        if rating:
-            self.user_repository.add_to_rated(from_user_id, user_id)
-            self.user_repository.add_log(from_user_id, LogType.RATE.value)
-            return Response({"success": True})
-        return HttpResponseBadRequest("Failed to add rating")
+        # Enforce 2 photos limit: delete all existing images for this user from DB and physical storage
+        existing_images = Image.objects.filter(user=user)
+        for img in existing_images:
+            try:
+                # Remove file from physical media storage
+                relative_path = img.url.replace(settings.MEDIA_URL, '', 1)
+                full_path = os.path.join(settings.MEDIA_ROOT, relative_path)
+                if os.path.exists(full_path):
+                    os.remove(full_path)
+            except Exception:
+                pass
+            img.delete()
+
+        fs = FileSystemStorage()
+        
+        front_ext = front.name.split('.')[-1] if '.' in front.name else 'jpg'
+        side_ext = side.name.split('.')[-1] if '.' in side.name else 'jpg'
+        
+        front_name = f"{uuid.uuid4()}.{front_ext}"
+        side_name = f"{uuid.uuid4()}.{side_ext}"
+        
+        front_saved = fs.save(front_name, front)
+        side_saved = fs.save(side_name, side)
+        
+        front_url = fs.url(front_saved)
+        side_url = fs.url(side_saved)
+
+        img1 = Image.objects.create(user=user, url=front_url)
+        img2 = Image.objects.create(user=user, url=side_url)
+
+        LogEntry.objects.create(user=user, log_type=LogType.ADD_IMG.value, text="Добавлены новые фотографии")
+        
+        return Response({
+            "success": True, 
+            "image_id": img1.id, 
+            "url": img1.url
+        })
+
+    @action(methods=['post'], detail=False)
+    def remove_image(self, request):
+        user_id = request.data.get('user_id')
+        image_id = request.data.get('image_id')
+        if not user_id or not image_id:
+            return HttpResponseBadRequest("Both 'user_id' and 'image_id' are required.")
+
+        user = get_object_or_404(User, id=user_id)
+        img = get_object_or_404(Image, id=image_id, user=user)
+        
+        image_url = img.url
+        img.delete()
+
+        try:
+            relative_path = image_url.replace(settings.MEDIA_URL, '', 1)
+            full_path = os.path.join(settings.MEDIA_ROOT, relative_path)
+            if os.path.exists(full_path):
+                os.remove(full_path)
+        except Exception:
+            pass
+
+        LogEntry.objects.create(user=user, log_type=LogType.REMOVE_IMG.value, text="Удалена фотография")
+        return Response({"success": True})
+
+    @action(methods=['get'], detail=False)
+    def logs(self, request):
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return HttpResponseBadRequest("user_id required")
+        user = get_object_or_404(User, id=user_id)
+        logs = LogEntry.objects.filter(user=user)
+        serializer = LogEntrySerializer(logs, many=True)
+        return Response(serializer.data)   
 
     @action(methods=['get'], detail=True)
     def rating(self, request, pk=None):
@@ -880,83 +929,50 @@ class CabinetView(viewsets.ViewSet):
         ratings = self.user_repository.get_ratings(pk)
         return Response([{"from": r.from_user.id, "value": r.value} for r in ratings])
 
-    @action(methods=['post'], detail=False)
-    def add_image(self, request):
-        """POST_AddImage(userId: int, url: str): bool"""
-        user_id = request.data.get('user_id')
-        url = request.data.get('url')
-        if not user_id or not url:
-            return HttpResponseBadRequest("user_id and url required")
-            
-        img = self.user_repository.add_image(user_id, url)
-        if img:
-            self.user_repository.add_log(user_id, LogType.ADD_IMG.value)
-            return Response({"success": True, "image_id": img.id, "url": img.url})
-        return HttpResponseBadRequest("Failed to add image")
+class LogView(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    user_repository = UserRepository()
 
     @action(methods=['delete'], detail=True)
-    def remove_image(self, request, pk=None):
-        """DELETE_RemoveImage(imageId: int): bool"""
+    def delete_log(self, request, pk=None):
+        """DELETE_DeleteLog(logId: int): bool"""
         try:
-            img = Image.objects.get(id=pk)
-            user_id = img.user.id
-            success = self.user_repository.remove_image(pk)
+            log = LogEntry.objects.get(id=pk)
+            user_id = log.user.id
+            success = self.user_repository.delete_log(pk)
             if success:
-                self.user_repository.add_log(user_id, LogType.REMOVE_IMG.value)
                 return Response({"success": True})
-        except Image.DoesNotExist:
+        except LogEntry.DoesNotExist:
             pass
-        return HttpResponseNotFound("Image not found")
-
+        return HttpResponseNotFound("Log not found")
+    
+    @action(methods=['get'], detail=True)
+    def list_user_logs(self, request, pk=None):
+        logs = self.user_repository.get_logs(pk)
+        return Response([{"id": l.id, "log_type": l.log_type, "text": l.text} for l in logs])
+    
     @action(methods=['get'], detail=False)
-    def images(self, request):
-        """GET_Images(userId: int): List[str]"""
-        user_id = request.query_params.get('user_id')
-        if not user_id:
-            return HttpResponseBadRequest("user_id required")
-        images = self.user_repository.get_images(user_id)
-        return Response([{"id": i.id, "url": i.url} for i in images])
-
-    @action(methods=['delete'], detail=False)
-    def delete_account(self, request):
-        """DELETE_DeleteAccount(userId: int): bool"""
-        user_id = request.data.get('user_id')
-        if not user_id:
-            return HttpResponseBadRequest("user_id required")
-            
-        success = self.user_repository.delete_account(user_id)
-        if success:
-            return Response({"success": True})
-        return HttpResponseNotFound("User not found")
-
-    @action(methods=['put'], detail=False)
-    def deactivate_account(self, request):
-        """PUT_DeactivateAccount(userId: int): bool"""
-        user_id = request.data.get('user_id')
-        if not user_id:
-            return HttpResponseBadRequest("user_id required")
-            
-        success = self.user_repository.deactivate_account(user_id)
-        if success:
-            return Response({"success": True})
-        return HttpResponseNotFound("User not found")
-
+    def get_all_logs(self, request):
+        logs = LogEntry.objects.all()
+        return Response([{"id": l.id, "user_id": l.user.id, "log_type": l.log_type, "text": l.text} for l in logs])
+    
     @action(methods=['get'], detail=False)
-    def logs(self, request):
-        """GET_Logs with LogFilter support."""
-        user_id = request.query_params.get('user_id')
-        if not user_id:
-            return HttpResponseBadRequest("user_id required")
-            
-        logs_qs = self.user_repository.get_logs(user_id)
-        
-        log_filter = LogFilter()
+    def filter_logs(self, request):
+        logs = LogEntry.objects.all()
+        logfilter = LogFilter()
+
         if request.query_params.get('target_user_id'):
-            log_filter.target_user_id = int(request.query_params.get('target_user_id'))
-            
-        log_types = request.query_params.getlist('log_types')
-        if log_types:
-            log_filter.log_types = log_types
-            
-        filtered_logs = log_filter.apply_filter(logs_qs)
-        return Response([{"id": l.id, "log_type": l.log_type, "text": l.text} for l in filtered_logs])
+            logfilter.target_user_id = int(request.query_params.get('target_user_id'))
+        if request.query_params.getlist('log_types'):
+            logfilter.log_types = request.query_params.getlist('log_types')
+        if request.query_params.get('start_date'):
+            logfilter.start_date = request.query_params.get('start_date')
+        if request.query_params.get('end_date'):
+            logfilter.end_date = request.query_params.get('end_date')
+        
+        filtered_logs = logfilter.apply_filter(logs)
+        return Response([{"id": l.id, "user_id": l.user.id, "log_type": l.log_type, "text": l.text} for l in filtered_logs])
+    
+    @action(methods=['get'], detail=False)
+    def log_page(self, request):
+        return render(request, 'logs.html')

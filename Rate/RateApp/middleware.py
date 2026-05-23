@@ -37,3 +37,31 @@ class JWTAuthMiddleware(BaseMiddleware):
 
         scope['user'] = await get_user(token) if token else AnonymousUser()
         return await super().__call__(scope, receive, send)
+
+
+from django.utils.deprecation import MiddlewareMixin
+
+class CookieJWTMiddleware(MiddlewareMixin):
+    """
+    Middleware to authenticate users using the JWT token stored in HTTP-Only 'accessToken' cookie.
+    If the token is valid, request.user is set to the authenticated user.
+    If missing, expired or invalid, request.user is set to AnonymousUser (bypassing session auth).
+    Excludes Django Admin paths.
+    """
+    def process_request(self, request):
+        if request.path.startswith('/admin/'):
+            return
+
+        raw_token = request.COOKIES.get('accessToken')
+        if raw_token:
+            try:
+                authenticator = JWTAuthentication()
+                validated_token = authenticator.get_validated_token(raw_token)
+                user = authenticator.get_user(validated_token)
+                if user and user.is_active:
+                    request.user = user
+                    return
+            except Exception:
+                pass
+        
+        request.user = AnonymousUser()

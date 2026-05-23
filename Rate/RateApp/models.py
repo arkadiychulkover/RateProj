@@ -92,19 +92,17 @@ class LogFilter:
 # ─── Django ORM Models ────────────────────────────────────────────────────────
 
 class User(AbstractUser):
-    url_paths    = models.JSONField(default=list)
     rating       = models.FloatField(default=0)
     rated_count  = models.IntegerField(default=0)
-
+    time_spent   = models.DateTimeField(null=True, blank=True)
+    email        = models.EmailField(unique=True)
+    
     friends = models.ManyToManyField(
         "self",
         blank=True,
         symmetrical=True
     )
-
-    time_spent = models.DateTimeField(null=True, blank=True)
-    email      = models.EmailField(unique=True)
-
+    
     rated_users = models.ManyToManyField(
         "self",
         blank=True,
@@ -112,8 +110,7 @@ class User(AbstractUser):
         related_name="rated_by"
     )
 
-    # Cabinet state
-    view_mode    = models.CharField(
+    view_mode = models.CharField(
         max_length=10,
         default=ViewMode.PUBLIC.value,
         choices=[(m.value, m.value) for m in ViewMode]
@@ -124,18 +121,8 @@ class User(AbstractUser):
         choices=[(z.value, z.value) for z in CabinetZone]
     )
 
-    rated_users = models.ManyToManyField(
-        "self",
-        blank=True,
-        symmetrical=False
-    )
-
     def __str__(self):
-        return (
-            f"ID: {self.id} {self.username} ({self.email}) "
-            f"- Rating: {self.rating:.2f} based on {self.rated_count} ratings"
-        )
-
+        return f"ID: {self.id} {self.username} - Rating: {self.rating:.2f}"
 
 class Message(models.Model):
     message_text = models.TextField()
@@ -160,26 +147,21 @@ class Message(models.Model):
     def __str__(self):
         return f"{self.sender} -> {self.recipient}"
 
-
 class FriendRequest(models.Model):
     from_user   = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_requests")
     to_user     = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_requests")
     created_at  = models.DateTimeField(auto_now_add=True)
     is_accepted = models.BooleanField(default=False)
 
-
 class Rating(models.Model):
     user      = models.ForeignKey(User, on_delete=models.CASCADE, related_name="ratings")
     from_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="given_ratings")
     value     = models.FloatField()
 
-
 class Image(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="images")
     url  = models.TextField()
 
-
-# Renamed from Log → LogEntry to avoid conflict with LogType enum
 class LogEntry(models.Model):
     user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name="logs")
     log_type   = models.CharField(max_length=30, default=LogType.LOGIN.value)
@@ -208,13 +190,15 @@ class MessageModel:
 
 class UserSerializer(serializers.ModelSerializer):
     display_rating = serializers.SerializerMethodField()
+    url_paths = serializers.SerializerMethodField()
 
     class Meta:
         model  = User
         fields = [
             'id', 'username', 'email',
-            'url_paths', 'rating', 'rated_count',
+            'rating', 'rated_count',
             'display_rating', 'view_mode', 'cabinet_zone',
+            'url_paths',
         ]
 
     def get_display_rating(self, obj):
@@ -223,7 +207,10 @@ class UserSerializer(serializers.ModelSerializer):
             tier_index = max(1, min(rating, 15))
             return Rate.get_name(tier_index)
         return "Unrated"
-
+    
+    def get_url_paths(self, obj):
+        return [img.url for img in obj.images.all()]
+    
 
 class MessageSerializer(serializers.ModelSerializer):
     class Meta:

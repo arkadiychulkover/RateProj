@@ -119,7 +119,10 @@ function authHeader() {
 }
 
 // ── Logout ────────────────────────────────────────────────────────────
-function doLogout() {
+async function doLogout() {
+    try {
+        await fetch('/api/logout/', { method: 'POST' });
+    } catch(e) {}
     localStorage.clear();
     window.location.href = '/login/';
 }

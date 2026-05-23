@@ -6,10 +6,12 @@ from .views import UserView, CabinetView
 router = DefaultRouter()
 router.register(r'users', UserView, basename='users')
 router.register(r'cabinet', CabinetView, basename='cabinet')
+router.register(r'logs', views.LogView, basename='logs')
 
 urlpatterns = [
     path('lenta/', include(router.urls)),
     path('api/', include(router.urls)),
+    path('logs/', include(router.urls)),
 
     # Pages
     path('', views.login_page, name='login_page'),
@@ -23,6 +25,7 @@ urlpatterns = [
     path('api/register/', views.api_register, name='api_register'),
     path('api/login/', views.api_login, name='api_login'),
     path('api/me/', views.api_me, name='api_me'),
+    path('api/logout/', views.api_logout, name='api_logout'),
 
     # Friends API
     path('api/friends/', views.api_get_friends, name='api_friends'),
