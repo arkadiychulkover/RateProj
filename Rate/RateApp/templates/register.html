@@ -1,41 +1,50 @@
 {% extends 'layout.html' %}
+{% load static %}
+
 {% block content %}
-<div class="auth-page">
-    <div class="auth-left">
-        <div class="auth-brand">
-            <div class="brand-glyph">R/</div>
-            <h1 class="brand-name">RATE</h1>
-            <p class="brand-tagline">Создай профиль. Добавляй друзей.<br>Общайся в реальном времени.</p>
-            <div class="brand-features">
-                <div class="feature-item"><span class="feat-icon">🚀</span> Регистрация за 30 секунд</div>
-                <div class="feature-item"><span class="feat-icon">🔒</span> Твои данные защищены</div>
-                <div class="feature-item"><span class="feat-icon">🌐</span> Присоединяйся к сообществу</div>
-            </div>
-        </div>
-    </div>
-    <div class="auth-right">
+<div class="auth-container">
+    <aside class="ads-sidebar">
+        <div class="ad-block">ADV</div>
+        <div class="ad-block">ADV</div>
+        <div class="ad-block">ADV</div>
+        <div class="ad-block">ADV</div>
+    </aside>
+
+    <main class="auth-center-content">
         <div class="auth-card">
             <h2 class="auth-title">Регистрация</h2>
             <p class="auth-sub">Создай свой аккаунт</p>
 
-            <div id="error-msg" class="error-msg" style="display:none; color: var(--red); margin-bottom: 15px; font-size: 13px;"></div>
-            <div id="success-msg" class="success-msg" style="display:none; color: var(--green); margin-bottom: 15px; font-size: 13px;"></div>
+            <div id="error-msg"   class="error-msg"   style="display:none;"></div>
+            <div id="success-msg" class="success-msg" style="display:none;"></div>
 
             <div class="form-group">
-                <label class="form-label">Логин</label>
-                <input type="text" id="username" class="form-input" placeholder="Придумай логин" autocomplete="off">
+                <label class="form-label" for="username">Логин</label>
+                {{ form.username }}
+                {% if form.username.errors %}
+                    <div class="field-error">{{ form.username.errors.0 }}</div>
+                {% endif %}
             </div>
             <div class="form-group">
-                <label class="form-label">Email</label>
-                <input type="email" id="email" class="form-input" placeholder="example@mail.com">
+                <label class="form-label" for="email">Email</label>
+                {{ form.email }}
+                {% if form.email.errors %}
+                    <div class="field-error">{{ form.email.errors.0 }}</div>
+                {% endif %}
             </div>
             <div class="form-group">
-                <label class="form-label">Пароль</label>
-                <input type="password" id="password" class="form-input" placeholder="Минимум 8 символов">
+                <label class="form-label" for="password">Пароль</label>
+                {{ form.password }}
+                {% if form.password.errors %}
+                    <div class="field-error">{{ form.password.errors.0 }}</div>
+                {% endif %}
             </div>
             <div class="form-group">
-                <label class="form-label">Повтори пароль</label>
-                <input type="password" id="confirm_password" class="form-input" placeholder="Повтори пароль">
+                <label class="form-label" for="confirm_password">Повтори пароль</label>
+                {{ form.confirm_password }}
+                {% if form.confirm_password.errors %}
+                    <div class="field-error">{{ form.confirm_password.errors.0 }}</div>
+                {% endif %}
             </div>
 
             <button id="regBtn" class="btn-primary" onclick="doRegister()">
@@ -46,73 +55,82 @@
             <div class="auth-divider">или</div>
             <a href="/login/" class="btn-secondary">Уже есть аккаунт? Войти</a>
         </div>
-    </div>
+
+        <footer class="auth-brand-footer">
+            <div class="brand-header">
+                <span class="brand-glyph">R/</span>
+                <span class="brand-name">RATE</span>
+            </div>
+            <p class="brand-tagline">Создай профиль. Добавляй друзей. Общайся в реальном времени.</p>
+            <div class="brand-features">
+                <span class="feature-item">🚀 Быстрая регистрация</span>
+                <span class="feature-item">🔒 Безопасность данных</span>
+                <span class="feature-item">🌐 Большое сообщество</span>
+            </div>
+        </footer>
+    </main>
+
+    <aside class="ads-sidebar">
+        <div class="ad-block">ADV</div>
+        <div class="ad-block">ADV</div>
+        <div class="ad-block">ADV</div>
+        <div class="ad-block">ADV</div>
+    </aside>
 </div>
 
 <script>
 async function doRegister() {
     const username = document.getElementById('username').value.trim();
-    const email = document.getElementById('email').value.trim();
+    const email    = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
-    const confirm = document.getElementById('confirm_password').value;
-    const btn = document.getElementById('regBtn');
+    const confirm  = document.getElementById('confirm_password').value;
+    const btn      = document.getElementById('regBtn');
 
     hideMessages();
 
-    if (!username || !email || !password || !confirm) {
-        showError('Заполни все поля');
-        return;
-    }
-    if (password !== confirm) {
-        showError('Пароли не совпадают');
-        return;
-    }
-    if (password.length < 8) {
-        showError('Пароль должен быть минимум 8 символов');
-        return;
-    }
+    if (!username || !email || !password || !confirm) { showError('Заполни все поля'); return; }
+    if (password !== confirm)  { showError('Пароли не совпадают'); return; }
+    if (password.length < 8)   { showError('Пароль должен быть минимум 8 символов'); return; }
 
-    btn.disabled = true;
-    btn.querySelector('.btn-text').style.display = 'none';
-    btn.querySelector('.btn-loader').style.display = 'inline';
-
+    setLoading(btn, true);
     try {
-        const res = await fetch('/api/register/', {
+        const res  = await fetch('/api/register/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, email, password })
+            body: JSON.stringify({ username, email, password, confirm_password: confirm }),
         });
         const data = await res.json();
-
         if (res.ok) {
-            localStorage.setItem('userId', data.user_id);
-            localStorage.setItem('username', data.username);
             showSuccess('Аккаунт создан! Перенаправляем...');
-            setTimeout(() => window.location.href = '/chat/', 800);
+            setTimeout(() => window.location.href = '/lenta/users/lenta/', 800);
         } else {
             showError(data.error || 'Ошибка регистрации');
         }
-    } catch(e) {
+    } catch {
         showError('Ошибка сети');
     } finally {
-        btn.disabled = false;
-        btn.querySelector('.btn-text').style.display = 'inline';
-        btn.querySelector('.btn-loader').style.display = 'none';
+        setLoading(btn, false);
     }
 }
 
 function showError(msg) {
-    document.getElementById('error-msg').textContent = msg;
-    document.getElementById('error-msg').style.display = 'block';
+    const el = document.getElementById('error-msg');
+    el.textContent = msg; el.style.display = 'block';
 }
 function showSuccess(msg) {
-    document.getElementById('success-msg').textContent = msg;
-    document.getElementById('success-msg').style.display = 'block';
+    const el = document.getElementById('success-msg');
+    el.textContent = msg; el.style.display = 'block';
 }
 function hideMessages() {
-    document.getElementById('error-msg').style.display = 'none';
+    document.getElementById('error-msg').style.display   = 'none';
     document.getElementById('success-msg').style.display = 'none';
 }
+function setLoading(btn, on) {
+    btn.disabled = on;
+    btn.querySelector('.btn-text').style.display   = on ? 'none'   : 'inline';
+    btn.querySelector('.btn-loader').style.display = on ? 'inline' : 'none';
+}
+
 document.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
 </script>
 {% endblock %}

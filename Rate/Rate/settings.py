@@ -9,7 +9,6 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
-# Настройка кастомной модели пользователя
 AUTH_USER_MODEL = 'RateApp.User'
 
 INSTALLED_APPS = [
@@ -31,6 +30,8 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    # JWT из httpOnly-куки → устанавливает request.user для обычных view
+    'RateApp.middleware.CookieJWTMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -38,17 +39,19 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'Rate.urls'
 
-# Настройки статических файлов
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
-    BASE_DIR / "Rate" / "config" / "wwwroot",
+    BASE_DIR / 'Rate' / 'config' / 'wwwroot',
 ]
+
+MEDIA_URL  = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
-            BASE_DIR / "RateApp" / "templates",
+            BASE_DIR / 'RateApp' / 'templates',
         ],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -62,12 +65,11 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'Rate.wsgi.application'
-ASGI_APPLICATION = 'Rate.asgi.application'
+ASGI_APPLICATION  = 'Rate.asgi.application'
 
-# Настройка Channels (WebSocket)
 CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer'
     }
 }
 
@@ -86,21 +88,28 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = 'ru-ru'
-TIME_ZONE = 'UTC'
-USE_I18N = True
-USE_TZ = True
+TIME_ZONE     = 'UTC'
+USE_I18N      = True
+USE_TZ        = True
 
-# Настройки JWT (на основе настроек Ивана)
+# JWT настройки
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
-    'AUTH_HEADER_TYPES': ('Bearer',),
+    'ACCESS_TOKEN_LIFETIME':  timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'AUTH_HEADER_TYPES':      ('Bearer',),
+    'AUTH_TOKEN_CLASSES':     ('rest_framework_simplejwt.tokens.AccessToken',),
 }
 
-# Настройки REST Framework для использования JWT по умолчанию
+# DRF: глобально только аутентификация; права управляются per-view / per-viewset
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'RateApp.middleware.CookieJWTAuthentication',
+    ],
+    # Не ставим глобальный IsAuthenticated — каждый ViewSet объявляет
+    # permission_classes сам. Функции-вью используют @permission_classes.
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ],
 }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

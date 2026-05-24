@@ -1,0 +1,288 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<style>
+    .logs-page {
+        padding: 20px;
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+    
+    .filters-container {
+        background: var(--card-bg, #fff);
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    .filters-title {
+        margin-top: 0;
+        color: var(--text-main, #2c3e50);
+    }
+    
+    /* Фильтры в один ряд с переносом, если не влезают */
+    .filters-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 15px;
+        align-items: flex-end; /* Выравнивание по нижней линии инпутов */
+    }
+    
+    .form-group {
+        flex: 1;
+        min-width: 180px; /* Чтобы не сжимались слишком сильно */
+    }
+    
+    /* Для мультиселекта можно дать чуть больше ширины, если нужно */
+    .form-group.wide {
+        flex: 1.5;
+        min-width: 220px;
+    }
+    
+    .form-label {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 5px;
+    }
+    
+    .form-input {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    
+    /* Ограничиваем высоту мультиселекта, чтобы он подходил под размер инпутов */
+    select.form-input[multiple] {
+        height: 38px; 
+        padding: 5px;
+    }
+    
+    .buttons-row {
+        display: flex;
+        gap: 10px;
+    }
+    
+    .table-container {
+        background: var(--card-bg, #730087);
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    .logs-table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+    }
+    
+    .logs-table thead tr {
+        background: #5b626a;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .logs-table th {
+        padding: 12px;
+        color: #fff;
+    }
+    
+    .logs-table td {
+        padding: 12px;
+    }
+    
+    .logs-table tbody tr {
+        border-bottom: 1px solid #eee;
+    }
+    
+    .badge-type {
+        background: #e2e8f0;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+        color: #333;
+    }
+    
+    .btn-delete {
+        background: #e74c3c;
+        color: #fff;
+        border: none;
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .no-data {
+        display: none;
+        text-align: center;
+        padding: 30px;
+        color: #000000;
+    }
+</style>
+
+<div class="logs-page">
+    <div class="filters-container">
+        <h2 class="filters-title">Фильтры логов</h2>
+        <form id="filterForm" onsubmit="applyFilters(event)">
+            <div class="filters-row">
+                <div class="form-group">
+                    <label class="form-label">ID Пользователя</label>
+                    <input type="number" id="target_user_id" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Дата С</label>
+                    <input type="datetime-local" id="start_date" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Дата По</label>
+                    <input type="datetime-local" id="end_date" class="form-input">
+                </div>
+                <div class="form-group wide">
+                    <label class="form-label">Типы логов</label>
+                    <select id="log_types" class="form-input" multiple>
+                        <option value="LOGIN">LOGIN</option>
+                        <option value="REGISTER">REGISTER</option>
+                        <option value="LOGOUT">LOGOUT</option>
+                        <option value="RATE">RATE</option>
+                        <option value="SEND_MESSAGE">SEND_MESSAGE</option>
+                        <option value="ACCEPT_FRIEND">ACCEPT_FRIEND</option>
+                        <option value="FRIEND_REQUEST">FRIEND_REQUEST</option>
+                        <option value="REMOVE_FRIEND">REMOVE_FRIEND</option>
+                        <option value="ADD_IMG">ADD_IMG</option>
+                        <option value="REMOVE_IMG">REMOVE_IMG</option>
+                        <option value="PROFILE_VISIT">PROFILE_VISIT</option>
+                        <option value="DELETE_ACCOUNT">DELETE_ACCOUNT</option>
+                    </select>
+                </div>
+            </div>
+            <div class="buttons-row">
+                <button type="submit" class="btn-primary" style="padding: 10px 20px;">Применить</button>
+                <button type="button" class="btn-secondary" onclick="resetFilters()" style="padding: 10px 20px;">Сбросить</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="table-container">
+        <table class="logs-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>User ID</th>
+                    <th>Тип</th>
+                    <th>Текст</th>
+                    <th style="text-align: center;">Действие</th>
+                </tr>
+            </thead>
+            <tbody id="logsTableBody"></tbody>
+        </table>
+        <div id="no-data" class="no-data">Логи не найдены</div>
+    </div>
+</div>
+
+<script>
+const apiBaseUrl = window.location.pathname.replace('log_page/', '');
+
+async function loadLogs(query = '') {
+    const tableBody = document.getElementById('logsTableBody');
+    const noData = document.getElementById('no-data');
+    
+    try {
+        const res = await fetch(`${apiBaseUrl}filter_logs/${query}`);
+        if (!res.ok) return;
+        const logs = await res.json();
+        
+        tableBody.innerHTML = '';
+        
+        if (logs.length === 0) {
+            noData.style.display = 'block';
+            return;
+        }
+        noData.style.display = 'none';
+        
+        logs.forEach(log => {
+            const tr = document.createElement('tr');
+            tr.id = `log-${log.id}`;
+            tr.innerHTML = `
+                <td>${log.id}</td>
+                <td>${log.user_id}</td>
+                <td><span class="badge-type">${log.log_type}</span></td>
+                <td>${log.text || ''}</td>
+                <td style="text-align: center;">
+                    <button class="btn-delete" onclick="deleteLog(${log.id})">Удалить</button>
+                </td>
+            `;
+            tableBody.appendChild(tr);
+        });
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function applyFilters(event) {
+    event.preventDefault();
+    const params = new URLSearchParams();
+    
+    const userId = document.getElementById('target_user_id').value;
+    const startDate = document.getElementById('start_date').value;
+    const endDate = document.getElementById('end_date').value;
+    const select = document.getElementById('log_types');
+    
+    if (userId) params.append('target_user_id', userId);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    
+    Array.from(select.selectedOptions).forEach(opt => {
+        params.append('log_types', opt.value);
+    });
+    
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    loadLogs(qs);
+}
+
+function resetFilters() {
+    document.getElementById('filterForm').reset();
+    loadLogs();
+}
+
+async function deleteLog(id) {
+    if (!confirm(`Удалить лог #${id}?`)) return;
+    
+    try {
+        const res = await fetch(`${apiBaseUrl}${id}/delete_log/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken'),
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (res.ok) {
+            const row = document.getElementById(`log-${id}`);
+            if (row) row.remove();
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function getCookie(name) {
+    let value = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                value = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return value;
+}
+
+document.addEventListener('DOMContentLoaded', () => loadLogs());
+</script>
+{% endblock %}
