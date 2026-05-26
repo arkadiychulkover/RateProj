@@ -1,6 +1,4 @@
 {% extends 'layout.html' %}
-{% load static %}
-
 {% block content %}
 <div class="auth-container">
     <aside class="ads-sidebar">
@@ -81,56 +79,67 @@
 <script>
 async function doRegister() {
     const username = document.getElementById('username').value.trim();
-    const email    = document.getElementById('email').value.trim();
+    const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
-    const confirm  = document.getElementById('confirm_password').value;
-    const btn      = document.getElementById('regBtn');
+    const confirm = document.getElementById('confirm_password').value;
+    const btn = document.getElementById('regBtn');
 
     hideMessages();
 
-    if (!username || !email || !password || !confirm) { showError('Заполни все поля'); return; }
-    if (password !== confirm)  { showError('Пароли не совпадают'); return; }
-    if (password.length < 8)   { showError('Пароль должен быть минимум 8 символов'); return; }
+    if (!username || !email || !password || !confirm) {
+        showError('Заполни все поля');
+        return;
+    }
+    if (password !== confirm) {
+        showError('Пароли не совпадают');
+        return;
+    }
+    if (password.length < 8) {
+        showError('Пароль должен быть минимум 8 символов');
+        return;
+    }
 
-    setLoading(btn, true);
+    btn.disabled = true;
+    btn.querySelector('.btn-text').style.display = 'none';
+    btn.querySelector('.btn-loader').style.display = 'inline';
+
     try {
-        const res  = await fetch('/api/register/', {
+        const res = await fetch('/api/register/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, email, password, confirm_password: confirm }),
+            body: JSON.stringify({ username, email, password })
         });
         const data = await res.json();
+
         if (res.ok) {
+            localStorage.setItem('userId', data.user_id);
+            localStorage.setItem('username', data.username);
             showSuccess('Аккаунт создан! Перенаправляем...');
-            setTimeout(() => window.location.href = '/lenta/users/lenta/', 800);
+            setTimeout(() => window.location.href = '/chat/', 800);
         } else {
             showError(data.error || 'Ошибка регистрации');
         }
-    } catch {
+    } catch(e) {
         showError('Ошибка сети');
     } finally {
-        setLoading(btn, false);
+        btn.disabled = false;
+        btn.querySelector('.btn-text').style.display = 'inline';
+        btn.querySelector('.btn-loader').style.display = 'none';
     }
 }
 
 function showError(msg) {
-    const el = document.getElementById('error-msg');
-    el.textContent = msg; el.style.display = 'block';
+    document.getElementById('error-msg').textContent = msg;
+    document.getElementById('error-msg').style.display = 'block';
 }
 function showSuccess(msg) {
-    const el = document.getElementById('success-msg');
-    el.textContent = msg; el.style.display = 'block';
+    document.getElementById('success-msg').textContent = msg;
+    document.getElementById('success-msg').style.display = 'block';
 }
 function hideMessages() {
-    document.getElementById('error-msg').style.display   = 'none';
+    document.getElementById('error-msg').style.display = 'none';
     document.getElementById('success-msg').style.display = 'none';
 }
-function setLoading(btn, on) {
-    btn.disabled = on;
-    btn.querySelector('.btn-text').style.display   = on ? 'none'   : 'inline';
-    btn.querySelector('.btn-loader').style.display = on ? 'inline' : 'none';
-}
-
 document.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
 </script>
 {% endblock %}

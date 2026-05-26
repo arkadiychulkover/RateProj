@@ -4,36 +4,142 @@ from django.contrib.auth.models import AbstractUser
 from enum import Enum, IntEnum
 
 
-# ── Django Models ─────────────────────────────────────────────────────────────
+# ─── Enums ────────────────────────────────────────────────────────────────────
+
+class CabinetZone(str, Enum):
+    PROFILE_SETTINGS = "PROFILE_SETTINGS"
+    CONTACT_LIST     = "CONTACT_LIST"
+    CHANGING_ZONE    = "CHANGING_ZONE"
+    STATISTICS       = "STATISTICS"
+
+
+class ViewMode(str, Enum):
+    PUBLIC  = "PUBLIC"
+    PRIVATE = "PRIVATE"
+
+
+class LogType(str, Enum):
+    ACCEPT_FRIEND  = "ACCEPT_FRIEND"
+    SEND_MESSAGE   = "SEND_MESSAGE"
+    RATE           = "RATE"
+    ADD_IMG        = "ADD_IMG"
+    REMOVE_IMG     = "REMOVE_IMG"
+    LOGIN          = "LOGIN"
+    REGISTER       = "REGISTER"
+    LOGOUT         = "LOGOUT"
+    REMOVE_FRIEND  = "REMOVE_FRIEND"
+    DELETE_ACCOUNT = "DELETE_ACCOUNT"
+    PROFILE_VISIT  = "PROFILE_VISIT"
+    FRIEND_REQUEST = "FRIEND_REQUEST"
+    DELETE_FRIEND  = "DELETE_FRIEND"
+
+
+class Rate(IntEnum):
+    SUB3      = 1
+    SUB5      = 2
+    LLTN      = 3
+    LTN       = 4
+    HLTN      = 5
+    LMTN      = 6
+    MTN       = 7
+    HMTN      = 8
+    LHTN      = 9
+    HTN       = 10
+    HHTN      = 11
+    CHAD_LITE = 12
+    CHAD      = 13
+    ADAM_LITE = 14
+    TRUE_ADAM = 15
+
+    @classmethod
+    def get_name(cls, value):
+        try:
+            return cls(value).name.replace('_', ' ').title().replace(' ', '')
+        except ValueError:
+            return "Unknown"
+
+
+# ─── LogFilter ────────────────────────────────────────────────────────────────
+
+class LogFilter:
+    """Filters a list of LogEntry ORM objects by user, type and date range."""
+
+    def __init__(self):
+        self.target_user_id: int | None = None
+        self.log_types: list[str] = []
+        self.start_date = None
+        self.end_date   = None
+
+    def apply_filter(self, logs):
+        result = list(logs)
+        if self.target_user_id is not None:
+            result = [l for l in result if l.user_id == self.target_user_id]
+        if self.log_types:
+            result = [l for l in result if l.log_type in self.log_types]
+        if self.start_date:
+            result = [l for l in result if l.created_at >= self.start_date]
+        if self.end_date:
+            result = [l for l in result if l.created_at <= self.end_date]
+        return result
+
+    def clear(self):
+        self.target_user_id = None
+        self.log_types      = []
+        self.start_date     = None
+        self.end_date       = None
+
+
+# ─── Django ORM Models ────────────────────────────────────────────────────────
 
 class User(AbstractUser):
-    url_paths    = models.JSONField(default=list)
     rating       = models.FloatField(default=0)
     rated_count  = models.IntegerField(default=0)
     time_spent   = models.DateTimeField(null=True, blank=True)
     email        = models.EmailField(unique=True)
-
-    # Поля для кабинета
-    view_mode    = models.CharField(max_length=32, default='grid')
-    cabinet_zone = models.CharField(max_length=64, default='main')
-
+    
     friends = models.ManyToManyField(
-        "self", blank=True, symmetrical=True
+        "self",
+        blank=True,
+        symmetrical=True
     )
+    
     rated_users = models.ManyToManyField(
-        "self", blank=True, symmetrical=False, related_name='rated_by'
+        "self",
+        blank=True,
+        symmetrical=False,
+        related_name="rated_by"
+    )
+
+    view_mode = models.CharField(
+        max_length=10,
+        default=ViewMode.PUBLIC.value,
+        choices=[(m.value, m.value) for m in ViewMode]
+    )
+    cabinet_zone = models.CharField(
+        max_length=30,
+        default=CabinetZone.PROFILE_SETTINGS.value,
+        choices=[(z.value, z.value) for z in CabinetZone]
     )
 
     def __str__(self):
-        return f"ID:{self.id} {self.username} rating={self.rating:.2f}/{self.rated_count}"
-
+        return f"ID: {self.id} {self.username} - Rating: {self.rating:.2f}"
 
 class Message(models.Model):
     message_text = models.TextField()
-    sender       = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_messages")
-    recipient    = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_messages")
-    send_time    = models.DateTimeField(auto_now_add=True)
-    is_read      = models.BooleanField(default=False)
+
+    sender = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="sent_messages"
+    )
+    recipient = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="received_messages"
+    )
+
+    send_time = models.DateTimeField(auto_now_add=True)
+    is_read   = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['send_time']
@@ -41,59 +147,35 @@ class Message(models.Model):
     def __str__(self):
         return f"{self.sender} -> {self.recipient}"
 
-
 class FriendRequest(models.Model):
-    from_user  = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_requests")
-    to_user    = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_requests")
-    created_at = models.DateTimeField(auto_now_add=True)
+    from_user   = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_requests")
+    to_user     = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_requests")
+    created_at  = models.DateTimeField(auto_now_add=True)
     is_accepted = models.BooleanField(default=False)
-
 
 class Rating(models.Model):
     user      = models.ForeignKey(User, on_delete=models.CASCADE, related_name="ratings")
     from_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="given_ratings")
     value     = models.FloatField()
 
-
 class Image(models.Model):
-    """Фотографии пользователя (макс. 2)."""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="images")
     url  = models.TextField()
 
-    def __str__(self):
-        return f"Image({self.id}) for {self.user.username}"
-
-
-class LogType(models.TextChoices):
-    ACCEPT_FRIEND  = "ACCEPT_FRIEND",  "Принял в друзья"
-    SEND_MESSAGE   = "SEND_MESSAGE",   "Отправил сообщение"
-    RATE           = "RATE",           "Поставил оценку"
-    ADD_IMG        = "ADD_IMG",        "Добавил фото"
-    REMOVE_IMG     = "REMOVE_IMG",     "Удалил фото"
-    LOGIN          = "LOGIN",          "Вошёл в систему"
-    REGISTER       = "REGISTER",       "Зарегистрировался"
-    LOGOUT         = "LOGOUT",         "Вышел из системы"
-    REMOVE_FRIEND  = "REMOVE_FRIEND",  "Удалил из друзей"
-    DELETE_ACCOUNT = "DELETE_ACCOUNT", "Удалил аккаунт"
-    PROFILE_VISIT  = "PROFILE_VISIT",  "Посмотрел профиль"
-    FRIEND_REQUEST = "FRIEND_REQUEST", "Отправил заявку"
-
-
 class LogEntry(models.Model):
-    """Лог действий пользователя."""
     user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name="logs")
-    log_type   = models.CharField(max_length=32, choices=LogType.choices, default=LogType.LOGIN)
-    text       = models.TextField()
+    log_type   = models.CharField(max_length=30, default=LogType.LOGIN.value)
+    text       = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"[{self.log_type}] {self.user.username}: {self.text[:60]}"
+        return f"[{self.log_type}] {self.user} @ {self.created_at}"
 
 
-# ── Вспомогательные plain-классы ──────────────────────────────────────────────
+# ─── Plain model classes (non-ORM) ────────────────────────────────────────────
 
 class MessageModel:
     def __init__(self, sender_id, recipient_id, text, send_time=None, is_read=False):
@@ -104,34 +186,37 @@ class MessageModel:
         self.is_read      = is_read
 
 
-# ── Enum тиров рейтинга ───────────────────────────────────────────────────────
+# ─── Serializers ──────────────────────────────────────────────────────────────
 
-class Rate(IntEnum):
-    SUB3       = 1
-    SUB5       = 2
-    LLTN       = 3
-    LTN        = 4
-    HLTN       = 5
-    LMTN       = 6
-    MTN        = 7
-    HMTN       = 8
-    LHTN       = 9
-    HTN        = 10
-    HHTN       = 11
-    CHAD_LITE  = 12
-    CHAD       = 13
-    ADAM_LITE  = 14
-    TRUE_ADAM  = 15
+class UserSerializer(serializers.ModelSerializer):
+    display_rating = serializers.SerializerMethodField()
+    url_paths = serializers.SerializerMethodField()
 
-    @classmethod
-    def get_name(cls, value):
-        try:
-            return cls(value).name.replace('_', ' ').title().replace(' ', '')
-        except ValueError:
-            return "Unknown"
+    class Meta:
+        model  = User
+        fields = [
+            'id', 'username', 'email',
+            'rating', 'rated_count',
+            'display_rating', 'view_mode', 'cabinet_zone',
+            'url_paths',
+        ]
 
+    def get_display_rating(self, obj):
+        if obj.rated_count > 0:
+            rating    = round(int(obj.rating) / obj.rated_count)
+            tier_index = max(1, min(rating, 15))
+            return Rate.get_name(tier_index)
+        return "Unrated"
+    
+    def get_url_paths(self, obj):
+        return [img.url for img in obj.images.all()]
+    
 
-# ── Сериализаторы ─────────────────────────────────────────────────────────────
+class MessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Message
+        fields = ['id', 'message_text', 'sender', 'recipient', 'send_time', 'is_read']
+
 
 class ImageSerializer(serializers.ModelSerializer):
     class Meta:
@@ -143,40 +228,3 @@ class LogEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model  = LogEntry
         fields = ['id', 'log_type', 'text', 'created_at']
-
-
-class UserSerializer(serializers.ModelSerializer):
-    display_rating = serializers.SerializerMethodField()
-    images         = ImageSerializer(many=True, read_only=True)
-
-    class Meta:
-        model  = User
-        fields = ['id', 'username', 'email', 'url_paths', 'rating', 'rated_count',
-                  'display_rating', 'images']
-
-    def get_display_rating(self, obj):
-        if obj.rated_count > 0:
-            tier_index = max(1, min(round(obj.rating / obj.rated_count), 15))
-            return Rate.get_name(tier_index)
-        return "Unrated"
-
-
-# ── LogFilter (используется в LogView) ───────────────────────────────────────
-
-class LogFilter:
-    def __init__(self):
-        self.target_user_id = None
-        self.log_types      = []
-        self.start_date     = None
-        self.end_date       = None
-
-    def apply_filter(self, qs):
-        if self.target_user_id:
-            qs = qs.filter(user_id=self.target_user_id)
-        if self.log_types:
-            qs = qs.filter(log_type__in=self.log_types)
-        if self.start_date:
-            qs = qs.filter(created_at__date__gte=self.start_date)
-        if self.end_date:
-            qs = qs.filter(created_at__date__lte=self.end_date)
-        return qs

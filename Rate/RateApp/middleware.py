@@ -4,65 +4,22 @@ from channels.middleware import BaseMiddleware
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.contrib.auth import get_user_model
-from django.utils.deprecation import MiddlewareMixin
 
 User = get_user_model()
 
 
-# ── DRF: читает JWT из httpOnly-куки (используется в ViewSet) ────────────────
-
 class CookieJWTAuthentication(JWTAuthentication):
-    """
-    DRF authentication backend.
-    Берёт access-токен из httpOnly-куки 'accessToken'.
-    Подключается в authentication_classes = [CookieJWTAuthentication].
-    """
+    """DRF authentication — читает JWT из httpOnly куки accessToken."""
     def authenticate(self, request):
         raw_token = request.COOKIES.get('accessToken')
         if raw_token is None:
             return None
-        try:
-            validated_token = self.get_validated_token(raw_token)
-            return self.get_user(validated_token), validated_token
-        except Exception:
-            return None
+        validated_token = self.get_validated_token(raw_token)
+        return self.get_user(validated_token), validated_token
 
-
-# ── Django Middleware: устанавливает request.user для обычных view ────────────
-
-class CookieJWTMiddleware(MiddlewareMixin):
-    """
-    Django WSGI middleware.
-    Если в куках есть валидный 'accessToken' — ставит request.user.
-    Иначе — AnonymousUser (не трогает сессию Django Admin).
-    Включить в settings.MIDDLEWARE перед AuthenticationMiddleware:
-
-        'RateApp.middleware.CookieJWTMiddleware',
-    """
-    def process_request(self, request):
-        # Не вмешиваемся в Django Admin (у него своя сессионная auth)
-        if request.path.startswith('/admin/'):
-            return
-
-        raw_token = request.COOKIES.get('accessToken')
-        if raw_token:
-            try:
-                auth = JWTAuthentication()
-                validated = auth.get_validated_token(raw_token)
-                user = auth.get_user(validated)
-                if user and user.is_active:
-                    request.user = user
-                    return
-            except Exception:
-                pass
-
-        request.user = AnonymousUser()
-
-
-# ── Channels (WebSocket): JWT из query-string ?token=... ─────────────────────
 
 @database_sync_to_async
-def _get_user_from_token(token_key: str):
+def get_user(token_key):
     try:
         token = AccessToken(token_key)
         return User.objects.get(id=token['user_id'])
@@ -71,20 +28,40 @@ def _get_user_from_token(token_key: str):
 
 
 class JWTAuthMiddleware(BaseMiddleware):
-    """
-    ASGI / Channels middleware.
-    Читает JWT из query-string: ws://host/ws/chat/?token=<access_token>
-    Используется в asgi.py:
-
-        application = JWTAuthMiddleware(URLRouter(websocket_urlpatterns))
-    """
     async def __call__(self, scope, receive, send):
-        query_string = scope.get('query_string', b'').decode()
+        query_string = scope.get("query_string", b"").decode()
         token = None
-        for param in query_string.split('&'):
-            if param.startswith('token='):
-                token = param.split('=', 1)[1]
-                break
+        for param in query_string.split("&"):
+            if param.startswith("token="):
+                token = param.split("=")[1]
 
-        scope['user'] = await _get_user_from_token(token) if token else AnonymousUser()
+        scope['user'] = await get_user(token) if token else AnonymousUser()
         return await super().__call__(scope, receive, send)
+
+
+from django.utils.deprecation import MiddlewareMixin
+
+class CookieJWTMiddleware(MiddlewareMixin):
+    """
+    Middleware to authenticate users using the JWT token stored in HTTP-Only 'accessToken' cookie.
+    If the token is valid, request.user is set to the authenticated user.
+    If missing, expired or invalid, request.user is set to AnonymousUser (bypassing session auth).
+    Excludes Django Admin paths.
+    """
+    def process_request(self, request):
+        if request.path.startswith('/admin/'):
+            return
+
+        raw_token = request.COOKIES.get('accessToken')
+        if raw_token:
+            try:
+                authenticator = JWTAuthentication()
+                validated_token = authenticator.get_validated_token(raw_token)
+                user = authenticator.get_user(validated_token)
+                if user and user.is_active:
+                    request.user = user
+                    return
+            except Exception:
+                pass
+        
+        request.user = AnonymousUser()
