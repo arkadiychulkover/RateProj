@@ -18,7 +18,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
-        # Send chat history on connect
         messages = await self.get_chat_history()
         for msg in messages:
             await self.send(text_data=json.dumps(msg))

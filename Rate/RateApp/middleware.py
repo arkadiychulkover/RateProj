@@ -2,6 +2,7 @@ from django.contrib.auth.models import AnonymousUser
 from channels.db import database_sync_to_async
 from channels.middleware import BaseMiddleware
 from rest_framework_simplejwt.tokens import AccessToken
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.contrib.auth import get_user_model
 
@@ -42,21 +43,37 @@ class JWTAuthMiddleware(BaseMiddleware):
 from django.utils.deprecation import MiddlewareMixin
 
 class CookieJWTMiddleware(MiddlewareMixin):
-    """
-    Middleware to authenticate users using the JWT token stored in HTTP-Only 'accessToken' cookie.
-    If the token is valid, request.user is set to the authenticated user.
-    If missing, expired or invalid, request.user is set to AnonymousUser (bypassing session auth).
-    Excludes Django Admin paths.
-    """
     def process_request(self, request):
         if request.path.startswith('/admin/'):
             return
 
-        raw_token = request.COOKIES.get('accessToken')
-        if raw_token:
+        access_token = request.COOKIES.get('accessToken')
+        refresh_token = request.COOKIES.get('refreshToken')
+
+        request._should_refresh_access_token = False
+
+        if not access_token and refresh_token:
+            try:
+                refresh = RefreshToken(refresh_token)
+                new_access_token = str(refresh.access_token)
+                
+                request._new_access_token_value = new_access_token
+                request._should_refresh_access_token = True
+
+                authenticator = JWTAuthentication()
+                validated_token = authenticator.get_validated_token(new_access_token)
+                user = authenticator.get_user(validated_token)
+                
+                if user and user.is_active:
+                    request.user = user
+                    return 
+            except Exception:
+                pass
+
+        if access_token:
             try:
                 authenticator = JWTAuthentication()
-                validated_token = authenticator.get_validated_token(raw_token)
+                validated_token = authenticator.get_validated_token(access_token)
                 user = authenticator.get_user(validated_token)
                 if user and user.is_active:
                     request.user = user
@@ -65,3 +82,19 @@ class CookieJWTMiddleware(MiddlewareMixin):
                 pass
         
         request.user = AnonymousUser()
+
+    def process_response(self, request, response):
+        if getattr(request, '_should_refresh_access_token', False):
+            new_token = getattr(request, '_new_access_token_value', None)
+            if new_token:
+                response.set_cookie(
+                    key='accessToken',
+                    value=new_token,
+                    max_age=86400, 
+                    httponly=True,
+                    samesite='Lax',
+                    secure=False 
+                )
+        return response
+            
+        

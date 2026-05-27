@@ -5,7 +5,6 @@
 {% block content %}
 <div class="chat-page">
 
-    <!-- Sidebar -->
     <div class="sidebar" id="sidebar">
         <div class="sidebar-top">
             <div class="user-btn" id="userBtn" onclick="toggleUserMenu()">
@@ -27,7 +26,6 @@
         </div>
     </div>
 
-    <!-- Main chat area -->
     <div class="chat-main">
         <div class="chat-empty" id="chatEmpty">
             <div class="empty-icon">💬</div>
@@ -58,7 +56,6 @@
     </div>
 </div>
 
-<!-- Search Modal -->
 <div class="modal-overlay" id="searchModal" style="display:none" onclick="closeModalBg(event,'searchModal')">
     <div class="modal">
         <div class="modal-header">
@@ -72,7 +69,6 @@
     </div>
 </div>
 
-<!-- Friend Requests Modal -->
 <div class="modal-overlay" id="requestsModal" style="display:none" onclick="closeModalBg(event,'requestsModal')">
     <div class="modal">
         <div class="modal-header">
@@ -86,8 +82,6 @@
 </div>
 
 <script>
-// ── State ────────────────────────────────────────────────────────────
-// Auth data injected by Django — no localStorage needed
 const ME_ID = {{ request.user.id }};
 const ME_NAME = "{{ request.user.username|escapejs }}";
 
@@ -96,7 +90,6 @@ let currentChatName = '';
 let ws = null;
 let searchTimeout = null;
 
-// ── Init ─────────────────────────────────────────────────────────────
 document.getElementById('myUsername').textContent = ME_NAME;
 document.getElementById('myAvatar').textContent = ME_NAME.charAt(0).toUpperCase();
 
@@ -104,21 +97,16 @@ loadFriends();
 loadFriendRequestBadge();
 setInterval(loadFriendRequestBadge, 30000);
 
-// Open chat directly if URL has /chat/<id>/
 const pathMatch = location.pathname.match(/\/chat\/(\d+)\//);
 if (pathMatch) {
     const uid = parseInt(pathMatch[1]);
-    // Will open after friends are loaded
     window._openChatId = uid;
 }
 
-// ── Auth header ───────────────────────────────────────────────────────
-// Token is in httpOnly cookie — sent automatically by browser
 function authHeader() {
     return { 'Content-Type': 'application/json' };
 }
 
-// ── Logout ────────────────────────────────────────────────────────────
 async function doLogout() {
     try {
         await fetch('/api/logout/', { method: 'POST' });
@@ -127,7 +115,6 @@ async function doLogout() {
     window.location.href = '/login/';
 }
 
-// ── User menu ──────────────────────────────────────────────────────────
 function toggleUserMenu() {
     const m = document.getElementById('userMenu');
     m.style.display = m.style.display === 'none' ? 'block' : 'none';
@@ -137,7 +124,6 @@ document.addEventListener('click', e => {
         document.getElementById('userMenu').style.display = 'none';
 });
 
-// ── Load friends ───────────────────────────────────────────────────────
 async function loadFriends() {
     try {
         const res = await fetch('/api/friends/', { headers: authHeader() });
@@ -186,7 +172,6 @@ function addFriendToSidebar(userId, username) {
     }
 }
 
-// ── Open chat ──────────────────────────────────────────────────────────
 function openChat(userId, username) {
     currentChatId = userId;
     currentChatName = username;
@@ -205,7 +190,6 @@ function openChat(userId, username) {
     history.pushState(null, '', `/chat/${userId}/`);
 }
 
-// ── WebSocket ──────────────────────────────────────────────────────────
 function connectWebSocket(userId) {
     if (ws) { ws.close(); ws = null; }
 
@@ -245,7 +229,6 @@ function appendMessage(text, senderId, time) {
     msgs.scrollTop = msgs.scrollHeight;
 }
 
-// ── Send message ────────────────────────────────────────────────────────
 function sendMessage() {
     const input = document.getElementById('msgInput');
     const text = input.value.trim();
@@ -257,7 +240,6 @@ document.getElementById('msgInput').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
-// ── Search users ────────────────────────────────────────────────────────
 function showSearch() {
     document.getElementById('userMenu').style.display = 'none';
     document.getElementById('searchModal').style.display = 'flex';
@@ -312,7 +294,6 @@ async function sendRequest(userId, username, btn) {
     }
 }
 
-// ── Friend requests ─────────────────────────────────────────────────────
 function showRequests() {
     document.getElementById('userMenu').style.display = 'none';
     document.getElementById('requestsModal').style.display = 'flex';
@@ -361,7 +342,6 @@ async function loadFriendRequestBadge() {
     } catch {}
 }
 
-// ── Remove friend ────────────────────────────────────────────────────────
 function confirmRemoveFriend() {
     if (!currentChatId) return;
     if (confirm(`Удалить ${currentChatName} из друзей?`)) removeFriend(currentChatId);
@@ -382,7 +362,6 @@ async function removeFriend(userId) {
     }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
 function escHtml(t) {
     return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }

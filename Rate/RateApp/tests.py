@@ -21,24 +21,21 @@ class RateAppTests(TestCase):
         )
 
     def test_unauthenticated_redirects(self):
-        """Unauthenticated page requests should redirect to login."""
         for url in ['/cabinet/', '/chat/']:
             response = self.client.get(url)
             self.assertEqual(response.status_code, 302)
             self.assertIn('/login/', response.url)
 
     def test_authenticated_page_redirects(self):
-        """Authenticated users visiting login/register pages should be redirected to lenta."""
         refresh = RefreshToken.for_user(self.user)
         self.client.cookies['accessToken'] = str(refresh.access_token)
 
         for url in ['/login/', '/register/']:
             response = self.client.get(url)
             self.assertEqual(response.status_code, 302)
-            self.assertIn('/lenta/users/lenta/', response.url)
+            self.assertIn('/lenta/', response.url)
 
     def test_cookie_jwt_middleware_auth(self):
-        """Test CookieJWTMiddleware authenticates requests with valid JWT cookie."""
         refresh = RefreshToken.for_user(self.user)
         self.client.cookies['accessToken'] = str(refresh.access_token)
 
@@ -47,7 +44,6 @@ class RateAppTests(TestCase):
         self.assertContains(response, f'const USERNAME = "{self.username}";')
 
     def test_logout_clears_cookies(self):
-        """Test logging out deletes simplejwt cookies."""
         refresh = RefreshToken.for_user(self.user)
         self.client.cookies['accessToken'] = str(refresh.access_token)
         self.client.cookies['refreshToken'] = str(refresh)
@@ -59,16 +55,13 @@ class RateAppTests(TestCase):
         self.assertEqual(response.cookies['refreshToken'].value, '')
 
     def test_photo_upload_limit_exactly_2(self):
-        """Uploading images should delete previous user images, enforcing 2-image limit."""
         refresh = RefreshToken.for_user(self.user)
         self.client.cookies['accessToken'] = str(refresh.access_token)
 
-        # Create two pre-existing images
         Image.objects.create(user=self.user, url="/media/old1.jpg")
         Image.objects.create(user=self.user, url="/media/old2.jpg")
         self.assertEqual(Image.objects.filter(user=self.user).count(), 2)
 
-        # Mock files for uploading
         front_file = SimpleUploadedFile("front.jpg", b"front_binary_content", content_type="image/jpeg")
         profile_file = SimpleUploadedFile("profile.jpg", b"profile_binary_content", content_type="image/jpeg")
 
@@ -79,13 +72,11 @@ class RateAppTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
 
-        # Check that old images are deleted and only exactly 2 new images remain
         self.assertEqual(Image.objects.filter(user=self.user).count(), 2)
         images = Image.objects.filter(user=self.user)
         self.assertNotIn("/media/old1.jpg", [img.url for img in images])
 
     def test_feed_loop_prevention(self):
-        """Test get_random_user returns 404 instead of looping infinitely if no users left."""
         refresh = RefreshToken.for_user(self.user)
         self.client.cookies['accessToken'] = str(refresh.access_token)
 
@@ -94,7 +85,6 @@ class RateAppTests(TestCase):
         self.assertIn("No unrated users left", response.json()['error'])
 
     def test_rating_creation_and_stats(self):
-        """Rating a user should create a Rating record, a LogEntry, and display it in stats."""
         target_user = User.objects.create_user(username="target", email="target@example.com", password="password")
         
         refresh = RefreshToken.for_user(self.user)
@@ -105,7 +95,6 @@ class RateAppTests(TestCase):
         }, content_type='application/json')
         self.assertEqual(response.status_code, 200)
 
-        # Verify database structures
         rating = Rating.objects.filter(user=target_user, from_user=self.user).first()
         self.assertIsNotNone(rating)
         self.assertEqual(rating.value, 12.0)
@@ -113,7 +102,6 @@ class RateAppTests(TestCase):
         log = LogEntry.objects.filter(user=self.user, log_type=LogType.RATE.value).first()
         self.assertIsNotNone(log)
 
-        # Verify stats endpoint
         stats_response = self.client.get(f'/api/cabinet/{target_user.id}/ratings/')
         self.assertEqual(stats_response.status_code, 200)
         self.assertEqual(stats_response.json()[0]['value'], 12.0)

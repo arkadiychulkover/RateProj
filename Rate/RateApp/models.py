@@ -4,7 +4,6 @@ from django.contrib.auth.models import AbstractUser
 from enum import Enum, IntEnum
 
 
-# ─── Enums ────────────────────────────────────────────────────────────────────
 
 class CabinetZone(str, Enum):
     PROFILE_SETTINGS = "PROFILE_SETTINGS"
@@ -59,7 +58,6 @@ class Rate(IntEnum):
             return "Unknown"
 
 
-# ─── LogFilter ────────────────────────────────────────────────────────────────
 
 class LogFilter:
     """Filters a list of LogEntry ORM objects by user, type and date range."""
@@ -89,7 +87,6 @@ class LogFilter:
         self.end_date       = None
 
 
-# ─── Django ORM Models ────────────────────────────────────────────────────────
 
 class User(AbstractUser):
     rating       = models.FloatField(default=0)
@@ -175,7 +172,6 @@ class LogEntry(models.Model):
         return f"[{self.log_type}] {self.user} @ {self.created_at}"
 
 
-# ─── Plain model classes (non-ORM) ────────────────────────────────────────────
 
 class MessageModel:
     def __init__(self, sender_id, recipient_id, text, send_time=None, is_read=False):
@@ -186,7 +182,6 @@ class MessageModel:
         self.is_read      = is_read
 
 
-# ─── Serializers ──────────────────────────────────────────────────────────────
 
 class UserSerializer(serializers.ModelSerializer):
     display_rating = serializers.SerializerMethodField()

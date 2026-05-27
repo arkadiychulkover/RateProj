@@ -76,7 +76,6 @@ def chat_with(request, user_id):
     })
 
 
-# ─── Auth API ─────────────────────────────────────────────────────────────────
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -94,10 +93,8 @@ def api_register(request):
     if User.objects.filter(email=email).exists():
         return Response({'error': 'Такой email уже используется'}, status=400)
 
-    # Создаем пользователя
     user = User.objects.create_user(username=username, email=email, password=password)
     
-    # Генерируем JWT токены
     refresh = RefreshToken.for_user(user)
     access_token = str(refresh.access_token)
     refresh_token = str(refresh)
@@ -108,14 +105,13 @@ def api_register(request):
         'username': user.username,
     }, status=201)
 
-    # Записываем токены в безопасные куки
     response.set_cookie(
         key='accessToken',
         value=access_token,
-        httponly=True,   # Защита от кражи через JS (XSS уязвимости)
-        samesite='Lax',  # Защита от CSRF
-        secure=False,    # Поставь True, когда проект будет на продакшене с HTTPS
-        max_age=86400    # Время жизни: 1 день
+        httponly=True, 
+        samesite='Lax',
+        secure=False,  
+        max_age=86400 
     )
     response.set_cookie(
         key='refreshToken',
@@ -123,7 +119,7 @@ def api_register(request):
         httponly=True,
         samesite='Lax',
         secure=False,
-        max_age=604800   # Время жизни: 7 дней
+        max_age=604800 
     )
     return response
 
@@ -142,7 +138,6 @@ def api_login(request):
         if not user.is_active:
             return Response({'error': 'Аккаунт заблокирован'}, status=403)
 
-        # Генерируем JWT токены
         refresh = RefreshToken.for_user(user)
         access_token = str(refresh.access_token)
         refresh_token = str(refresh)
@@ -153,14 +148,13 @@ def api_login(request):
             'username': user.username,
         }, status=200)
 
-        # Записываем токены в безопасные куки
         response.set_cookie(
             key='accessToken',
             value=access_token,
             httponly=True,
             samesite='Lax',
             secure=False,
-            max_age=86400  # 1 день
+            max_age=86400  
         )
         response.set_cookie(
             key='refreshToken',
@@ -168,7 +162,7 @@ def api_login(request):
             httponly=True,
             samesite='Lax',
             secure=False,
-            max_age=604800  # 7 дней
+            max_age=604800 
         )
         return response
         
@@ -190,8 +184,43 @@ def api_logout(request):
     logout(request)
     return response
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def refresh(request):
+    refreshtoken = request.COOKIES.get('refreshToken')
+    if not refreshtoken:
+        return JsonResponse({"error":"no refresh token"}, status=status.HTTP_401_UNAUTHORIZED)
 
-# ─── Friends API ──────────────────────────────────────────────────────────────
+    refresh = RefreshToken(refreshtoken)
+    acsesstoken = str(refresh.access_token)
+    new_refreshtoken = str(refresh)
+
+    response = Response({
+            'success': True,
+        }, status=200)
+
+    response.set_cookie(
+            key='accessToken',
+            value=acsesstoken,
+            httponly=True,
+            samesite='Lax',
+            secure=False,
+            max_age=86400 
+        )
+    response.set_cookie(
+            key='refreshToken',
+            value=new_refreshtoken,
+            httponly=True,
+            samesite='Lax',
+            secure=False,
+            max_age=604800 
+        )
+        
+    return response
+
+
+
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -246,7 +275,6 @@ def api_send_friend_request(request):
     if existing:
         return Response({'error': 'Запрос уже отправлен'}, status=400)
 
-    # If the other user already sent us a request — auto-accept
     reverse = FriendRequest.objects.filter(
         from_user=to_user, to_user=request.user, is_accepted=False
     ).first()
@@ -305,7 +333,6 @@ def api_remove_friend(request):
         return Response({'error': 'Пользователь не найден'}, status=404)
 
 
-# ─── Chat API ─────────────────────────────────────────────────────────────────
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -698,10 +725,8 @@ class UserView(viewsets.ViewSet):
         user.save()
         owner.rated_users.add(user)
 
-        # Create actual Rating object for the statistics
         Rating.objects.create(user=user, from_user=owner, value=float(rate))
         
-        # Create LogEntry
         LogEntry.objects.create(user=owner, log_type=LogType.RATE.value, text=f"Поставил оценку {rate} пользователю @{user.username}")
 
         return JsonResponse({
@@ -747,7 +772,6 @@ class UserView(viewsets.ViewSet):
             user.rated_count = random.randint(0, 1000)
             user.save()
 
-            # Seed exactly 2 photos for each user
             Image.objects.create(
                 user=user,
                 url=f"https://picsum.photos/500/500?random={random.randint(1, 999999)}"
@@ -843,11 +867,9 @@ class CabinetView(viewsets.ViewSet):
 
         user = get_object_or_404(User, id=user_id)
         
-        # Enforce 2 photos limit: delete all existing images for this user from DB and physical storage
         existing_images = Image.objects.filter(user=user)
         for img in existing_images:
             try:
-                # Remove file from physical media storage
                 relative_path = img.url.replace(settings.MEDIA_URL, '', 1)
                 full_path = os.path.join(settings.MEDIA_ROOT, relative_path)
                 if os.path.exists(full_path):

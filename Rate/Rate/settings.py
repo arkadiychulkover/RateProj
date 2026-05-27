@@ -39,7 +39,6 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'Rate.urls'
 
-# Настройки статических файлов
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
     BASE_DIR / "Rate" / "config" / "wwwroot",
@@ -65,7 +64,6 @@ TEMPLATES = [
 WSGI_APPLICATION = 'Rate.wsgi.application'
 ASGI_APPLICATION = 'Rate.asgi.application'
 
-# Настройка Channels (WebSocket)
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels.layers.InMemoryChannelLayer"
@@ -91,13 +89,11 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# Настройки JWT (на основе настроек Ивана)
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# Настройки REST Framework для использования JWT по умолчанию
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'RateApp.middleware.CookieJWTAuthentication',

@@ -11,7 +11,7 @@
     <main class="feed">
         <div class="post-card" id="main-post-card">
             <div class="post-header">
-                <div class="username" id="username" onclick="openProfileModal()" title="Открыть профиль">@username</div>
+                <div class="username" id="username" onclick="openProfileModal(this)" title="Открыть профиль">@username</div>
                 <div class="post-rating" id="rating">Rating: 0</div>
             </div>
 
@@ -53,7 +53,6 @@
     </aside>
 </div>
 
-<!-- Profile Modal -->
 <div class="modal-overlay" id="profileModal" onclick="closeProfileModalBg(event)">
     <div class="profile-modal">
         <button class="profile-modal-close" onclick="closeProfileModal()">✕</button>
@@ -83,34 +82,195 @@
 let _modalUserId = null;
 let _modalUsername = '';
 
-function openProfileModal() {
-    const holder = document.getElementById('rate-data-holder');
-    _modalUserId = holder.dataset.userId;
-    _modalUsername = document.getElementById('username').innerText.replace('@', '');
+function createCardHTML(user) {
+    const img1 = user.url_paths && user.url_paths.length >= 1 ? user.url_paths[0] : "{% static 'img/test.jpg' %}";
+    const img2 = user.url_paths && user.url_paths.length >= 2 ? user.url_paths[1] : img1;
+    const displayRating = user.display_rating || user.rating || 0;
+
+    return `
+        <div class="post-header">
+            <div class="username" onclick="openProfileModal(this)" title="Открыть профиль">@${user.username}</div>
+            <div class="post-rating">Rating: ${displayRating}</div>
+        </div>
+
+        <div class="post-images-container">
+            <div class="image-wrapper">
+                <img src="${img1}" alt="">
+            </div>
+            <div class="image-wrapper">
+                <img src="${img2}" alt="">
+            </div>
+        </div>
+
+        <div class="post-footer">
+            <div class="rating-grid">
+                <button class="rate-num" data-value="1">Sub3</button>
+                <button class="rate-num" data-value="2">Sub5</button>
+                <button class="rate-num" data-value="3">Lltn</button>
+                <button class="rate-num" data-value="4">Ltn</button>
+                <button class="rate-num" data-value="5">Hltn</button>
+                <button class="rate-num" data-value="6">Lmtn</button>
+                <button class="rate-num" data-value="7">Mtn</button>
+                <button class="rate-num" data-value="8">Hmtn</button>
+                <button class="rate-num" data-value="9">Lhtn</button>
+                <button class="rate-num" data-value="10">Htn</button>
+                <button class="rate-num" data-value="11">Hhtn</button>
+                <button class="rate-num" data-value="12">CL</button>
+                <button class="rate-num" data-value="13">Chad</button>
+                <button class="rate-num" data-value="14">AdamLite</button>
+                <button class="rate-num" data-value="15">TrueAdam</button>
+            </div>
+            <div id="rate-data-holder" data-user-id="${user.id}"></div>
+        </div>
+    `;
+}
+
+async function loadFirstUser() {
+    try {
+        const response = await fetch('/api/users/get_random_user/');
+        if (!response.ok) return;
+        const user = await response.json();
+
+        const currentCard = document.getElementById('main-post-card');
+        if (!currentCard) return;
+
+        const usernameEl = currentCard.querySelector('.username');
+        const ratingEl   = currentCard.querySelector('.post-rating');
+        const img1       = currentCard.querySelector('.image-wrapper:nth-child(1) img');
+        const img2       = currentCard.querySelector('.image-wrapper:nth-child(2) img');
+        const holder     = currentCard.querySelector('#rate-data-holder');
+
+        if (usernameEl) usernameEl.innerText = '@' + user.username;
+        if (ratingEl)   ratingEl.innerText   = 'Rating: ' + (user.display_rating || user.rating || 0);
+
+        if (user.url_paths && user.url_paths.length >= 1) {
+            if (img1) img1.src = user.url_paths[0];
+            if (img2) img2.src = user.url_paths[1] || user.url_paths[0];
+        }
+        if (holder) holder.dataset.userId = user.id;
+    } catch (e) {
+        console.error('loadFirstUser:', e);
+    }
+}
+
+async function fetchRandomUserData() {
+    try {
+        const response = await fetch('/api/users/get_random_user/');
+        if (!response.ok) return null;
+        return await response.json();
+    } catch (e) {
+        console.error('fetchRandomUserData:', e);
+        return null;
+    }
+}
+
+async function updateGlobalRating() {
+    try {
+        const res = await fetch('/lenta/users/get_user_rating/');
+        if (!res.ok) return;
+        const data  = await res.json();
+        const label = document.getElementById('UsersRating');
+        if (label) label.innerText = data.display_rating || 'N/A';
+    } catch (e) {
+        console.error('updateGlobalRating:', e);
+    }
+}
+
+document.addEventListener('click', async function (e) {
+    if (!e.target.classList.contains('rate-num')) return;
+
+    const currentCard = e.target.closest('.post-card');
+    if (!currentCard || currentCard.classList.contains('slide-out-top')) return;
+
+    const holder = currentCard.querySelector('#rate-data-holder');
+    if (!holder) return;
+
+    const userId    = holder.dataset.userId;
+    const rateValue = e.target.dataset.value;
+    if (!userId) return;
+
+    try {
+        const csrfCookie = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrftoken='));
+        const csrfToken = csrfCookie ? csrfCookie.split('=')[1] : '';
+
+        currentCard.style.pointerEvents = 'none';
+
+        const response = await fetch(`/lenta/users/${userId}/add_rating/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ rate: rateValue })
+        });
+
+        if (response.ok) {
+            const nextUser = await fetchRandomUserData();
+            
+            if (nextUser) {
+                const feed = document.querySelector('.feed');
+                
+                const newCard = document.createElement('div');
+                newCard.className = 'post-card slide-in-bottom';
+                newCard.innerHTML = createCardHTML(nextUser);
+                
+                feed.appendChild(newCard);
+
+                currentCard.classList.add('slide-out-top');
+
+                newCard.addEventListener('animationend', () => {
+                    currentCard.remove();
+                    newCard.classList.remove('slide-in-bottom');
+                }, { once: true });
+            } else {
+                currentCard.style.pointerEvents = 'auto';
+            }
+
+            await updateGlobalRating();
+        } else {
+            currentCard.style.pointerEvents = 'auto';
+        }
+    } catch (err) {
+        console.error('add_rating:', err);
+        currentCard.style.pointerEvents = 'auto';
+    }
+});
+
+function openProfileModal(element) {
+    const currentCard = element.closest('.post-card');
+    if (!currentCard) return;
+
+    const holder = currentCard.querySelector('#rate-data-holder');
+    const usernameEl = currentCard.querySelector('.username');
+    const ratingEl = currentCard.querySelector('.post-rating');
+    const img1El = currentCard.querySelector('.post-images-container img:nth-child(1)');
+    
+    const images = currentCard.querySelectorAll('.post-images-container img');
+
+    _modalUserId = holder ? holder.dataset.userId : null;
+    _modalUsername = usernameEl ? usernameEl.innerText.replace('@', '') : 'username';
 
     if (!_modalUserId) return;
 
-    // Fill basic info
     document.getElementById('modalAvatar').textContent = _modalUsername.charAt(0).toUpperCase();
     document.getElementById('modalUsername').textContent = '@' + _modalUsername;
-    document.getElementById('modalRating').textContent = document.getElementById('rating').innerText;
+    document.getElementById('modalRating').textContent = ratingEl ? ratingEl.innerText : 'Rating: 0';
 
-    // Fill photos
     const photos = document.getElementById('modalPhotos');
-    const img1 = document.getElementById('user-image-1').src;
-    const img2 = document.getElementById('user-image-2').src;
-    photos.innerHTML = [img1, img2]
+    const photoSources = Array.from(images).map(img => img.src);
+
+    photos.innerHTML = photoSources
         .filter(src => src && !src.endsWith('test.jpg'))
         .map(src => `<img src="${src}" class="modal-photo" onclick="openPhotoFullscreen('${src}')">`)
         .join('') || '<div class="modal-no-photos">Нет фотографий</div>';
 
-    // Reset friend button
     const friendBtn = document.getElementById('modalFriendBtn');
     friendBtn.disabled = false;
     friendBtn.innerHTML = '<span>👤</span> Добавить в друзья';
     friendBtn.className = 'profile-action-btn btn-friend';
 
-    // Check if already friend
     fetch('/api/friends/').then(r => r.json()).then(friends => {
         const isFriend = friends.some(f => String(f.id) === String(_modalUserId));
         if (isFriend) {
@@ -175,5 +335,16 @@ function openPhotoFullscreen(src) {
     overlay.onclick = () => overlay.remove();
     document.body.appendChild(overlay);
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadFirstUser();
+
+    if (document.getElementById('UsersRating')) {
+        const isAuthPage = document.querySelector('.auth-card');
+        if (!isAuthPage) {
+            updateGlobalRating();
+        }
+    }
+});
 </script>
 {% endblock %}

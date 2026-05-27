@@ -45,12 +45,10 @@
 const USER_ID = {{ request.user.id }};
 const USERNAME = "{{ request.user.username|escapejs }}";
 
-// Функция получения CSRF-токена из куки или формы Django
 function getCsrfToken() {
     return document.querySelector('[name=csrfmiddlewaretoken]').value;
 }
 
-// ── Init ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('cabAvatar').textContent = USERNAME.charAt(0).toUpperCase();
     document.getElementById('cabUsername').textContent = '@' + USERNAME;
@@ -105,7 +103,6 @@ async function switchZone(zone) {
     renderZone(zone);
 }
 
-// ── Zone Renderers ────────────────────────────────────────────────────
 function renderZone(zone) {
     const zones = {
         PROFILE_SETTINGS: renderProfile,
@@ -116,7 +113,6 @@ function renderZone(zone) {
     (zones[zone] || (() => {}))();
 }
 
-// ── PROFILE SETTINGS (Исправленная форма под загрузку файлов) ─────────
 async function renderProfile() {
     const main = document.getElementById('cabMain');
     main.innerHTML = `
@@ -168,7 +164,6 @@ async function loadPhotos() {
     }
 }
 
-// Функция отправки файлов через FormData (multipart/form-data)
 async function uploadPhotos(event) {
     event.preventDefault();
     const errEl = document.getElementById('photoError');
@@ -179,14 +174,12 @@ async function uploadPhotos(event) {
 
     errEl.style.display = 'none';
     
-    // Собираем бинарные данные файлов
     const formData = new FormData();
     formData.append('user_id', USER_ID);
     formData.append('front', frontInput.files[0]);
     formData.append('profile', profileInput.files[0]);
 
     try {
-        // При отправке FormData заголовок Content-Type указывать НЕ надо, браузер настроит его сам
         const res = await fetch('/api/cabinet/add_image/', {
             method: 'POST',
             headers: { 
@@ -234,7 +227,7 @@ async function deletePhoto(imageId) {
         alert('Ошибка сети');
     }
 }
-// ── CONTACT LIST ──────────────────────────────────────────────────────
+
 async function renderContacts() {
     const main = document.getElementById('cabMain');
     main.innerHTML = `
@@ -281,7 +274,6 @@ async function removeFriend(friendId, btn) {
     else btn.disabled = false;
 }
 
-// ── CHANGING ZONE ─────────────────────────────────────────────────────
 async function renderSettings() {
     const main = document.getElementById('cabMain');
 
@@ -371,7 +363,6 @@ async function deleteAccount() {
     if (res.ok) window.location.href = '/login/';
 }
 
-// ── STATISTICS ────────────────────────────────────────────────────────
 async function renderStatistics() {
     const main = document.getElementById('cabMain');
     main.innerHTML = `<div class="cab-loading">Загрузка статистики...</div>`;
@@ -434,7 +425,6 @@ async function renderStatistics() {
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
 function escHtml(t) {
     return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }

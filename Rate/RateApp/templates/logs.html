@@ -21,21 +21,19 @@
         color: var(--text-main, #2c3e50);
     }
     
-    /* Фильтры в один ряд с переносом, если не влезают */
     .filters-row {
         display: flex;
         flex-wrap: wrap;
         gap: 15px;
         margin-bottom: 15px;
-        align-items: flex-end; /* Выравнивание по нижней линии инпутов */
+        align-items: flex-end;
     }
     
     .form-group {
         flex: 1;
-        min-width: 180px; /* Чтобы не сжимались слишком сильно */
+        min-width: 180px; 
     }
     
-    /* Для мультиселекта можно дать чуть больше ширины, если нужно */
     .form-group.wide {
         flex: 1.5;
         min-width: 220px;
@@ -55,7 +53,6 @@
         box-sizing: border-box;
     }
     
-    /* Ограничиваем высоту мультиселекта, чтобы он подходил под размер инпутов */
     select.form-input[multiple] {
         height: 38px; 
         padding: 5px;
