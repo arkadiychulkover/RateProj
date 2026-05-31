@@ -21,10 +21,25 @@
       <span id="themeLabel">Светлая</span>
     </button>
 
-    <button class="nav-btn" onclick="window.location.href='/cabinet/'">
+    <button class="nav-btn" onclick="window.location.href='/cabinet/'" title="Личный кабинет">
         <img src="{% static 'assets/icon-profile.png' %}" alt="Profile">
     </button>
+    {% if request.user.is_authenticated %}
+    <button class="nav-btn" onclick="globalLogout()" style="margin-left: 8px;" title="Выйти">
+        <span style="font-size: 20px;">🚪</span>
+    </button>
+    {% endif %}
 </header>
+
+<script>
+async function globalLogout() {
+    try {
+        await fetch('/api/logout/', { method: 'POST' });
+    } catch(e) {}
+    localStorage.clear();
+    window.location.href = '/login/';
+}
+</script>
 
 {% block content %}{% endblock %}
 

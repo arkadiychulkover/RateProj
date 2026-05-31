@@ -32,14 +32,14 @@ from .models import User, Message, FriendRequest, Rating
 
 def login_page(request):
     if request.user.is_authenticated:
-        return redirect('lenta')
+        return redirect('lenta_users_nested')
     form = LoginForm()
     return render(request, 'login.html', {'form': form})
 
 
 def register_page(request):
     if request.user.is_authenticated:
-        return redirect('lenta')
+        return redirect('lenta_users_nested')
     form = RegistrationForm()
     return render(request, 'register.html', {'form': form})
 
