@@ -782,6 +782,7 @@ body {
     box-shadow: 0 0 60px rgba(191, 0, 255, 0.1), 0 20px 60px rgba(0,0,0,0.5);
     position: relative;
     overflow: hidden;
+    min-height: 400px;
 }
 
 .auth-card::before {
@@ -920,6 +921,7 @@ body {
     text-decoration: none;
     text-align: center;
     transition: border-color 0.2s, color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box;
 }
 
 .btn-secondary:hover {
